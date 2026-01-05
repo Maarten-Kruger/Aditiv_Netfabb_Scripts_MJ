@@ -50,6 +50,60 @@ local function get_part_aabb(part)
         return retMin, retMax
     end
 
+    -- Fallback: Check for 'center' property
+    local okC, retCenter = pcall(function() return part.center end)
+    if okC and retCenter then
+        -- Verify it has x, y, z
+        if type(retCenter.x) == "number" and type(retCenter.y) == "number" then
+             return retCenter, retCenter
+        end
+    end
+
+    -- Fallback: Check for 'matrix' property
+    local okM, mat = pcall(function() return part.matrix end)
+    if okM and mat then
+        -- Helper for matrix access
+        local function get_val(m, r, c)
+            local ok, val = pcall(function() return m:get(r, c) end)
+            if ok and type(val) == "number" then return val end
+            return nil
+        end
+
+        -- Convention A: (3,0), (3,1), (3,2) - Row Major translation at bottom
+        local xA = get_val(mat, 3, 0)
+        local yA = get_val(mat, 3, 1)
+        local zA = get_val(mat, 3, 2)
+
+        -- Convention B: (0,3), (1,3), (2,3) - Column Major translation at right
+        local xB = get_val(mat, 0, 3)
+        local yB = get_val(mat, 1, 3)
+        local zB = get_val(mat, 2, 3)
+
+        local function is_valid(v) return v ~= nil end
+        local validA = is_valid(xA) and is_valid(yA)
+        local validB = is_valid(xB) and is_valid(yB)
+
+        -- Heuristic: Default to A (Netfabb standard often), unless B seems populated and A is not
+        if validA and validB then
+            -- Check magnitude? Or just pick A.
+            local magA = math.abs(xA) + math.abs(yA)
+            local magB = math.abs(xB) + math.abs(yB)
+            if magB > magA + 0.0001 then -- If B has significantly more data?
+                local v = {x=xB, y=yB, z=(zB or 0)}
+                return v, v
+            else
+                local v = {x=xA, y=yA, z=(zA or 0)}
+                return v, v
+            end
+        elseif validA then
+            local v = {x=xA, y=yA, z=(zA or 0)}
+            return v, v
+        elseif validB then
+            local v = {x=xB, y=yB, z=(zB or 0)}
+            return v, v
+        end
+    end
+
     -- If no direct min/max, try recursive calculation
     local inf = 1e9
     local calculatedMin = {x=inf, y=inf, z=inf}
@@ -126,10 +180,7 @@ if itemCount then
         end
     end
 else
-    log("WARNING: root.itemcount failed or nil. Trying fallback.")
-    -- Fallback code (previous mesh/subgroup logic) could go here, but itemcount should work.
-    -- I'll keep the mesh/subgroup logic just in case itemcount returns 0 but meshes exist?
-    -- Actually, usually itemcount covers everything.
+    log("Note: root.itemcount failed or nil. Will attempt fallback enumeration.")
 end
 
 if #parts == 0 then
