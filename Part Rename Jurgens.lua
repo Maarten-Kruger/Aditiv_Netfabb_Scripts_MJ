@@ -19,6 +19,12 @@ local function log(msg)
     end
 end
 
+-- Safe execution helper
+local function safe_get(func)
+    local ok, res = pcall(func)
+    if ok then return res else return nil end
+end
+
 log("--- Robust Netfabb Renamer START ---")
 
 if tray == nil then
@@ -35,8 +41,6 @@ end
 -- Helper to safely get AABB of a part (Mesh or Group)
 local function get_part_aabb(part)
     -- Try direct min/max properties (common in Netfabb Lua)
-    local min, max
-
     local ok, retMin = pcall(function() return part.min end)
     local ok2, retMax = pcall(function() return part.max end)
 
@@ -61,8 +65,9 @@ local function get_part_aabb(part)
     end
 
     -- Recurse
-    if part.meshcount then
-        for i = 0, part.meshcount - 1 do
+    local mc = safe_get(function() return part.meshcount end)
+    if mc then
+        for i = 0, mc - 1 do
              local m = part:getmesh(i)
              if m then
                  local mMin, mMax = get_part_aabb(m)
@@ -70,8 +75,10 @@ local function get_part_aabb(part)
              end
         end
     end
-    if part.subgroupcount then
-        for i = 0, part.subgroupcount - 1 do
+
+    local sc = safe_get(function() return part.subgroupcount end)
+    if sc then
+        for i = 0, sc - 1 do
              local g = part:getsubgroup(i)
              if g then
                  local gMin, gMax = get_part_aabb(g)
@@ -97,29 +104,35 @@ end
 local parts = {}
 
 -- 1. Meshes
-if root.meshcount then
-    for i = 0, root.meshcount - 1 do
+local meshCount = safe_get(function() return root.meshcount end)
+if meshCount then
+    for i = 0, meshCount - 1 do
         local m = root:getmesh(i)
         if m then
             table.insert(parts, {obj = m, type = "mesh", tag = "mesh_"..i})
         end
     end
+else
+    log("Note: root.meshcount not accessible or nil.")
 end
 
 -- 2. Subgroups (Parts with supports or groups)
-if root.subgroupcount then
-    for i = 0, root.subgroupcount - 1 do
+local subgroupCount = safe_get(function() return root.subgroupcount end)
+if subgroupCount then
+    for i = 0, subgroupCount - 1 do
         local g = root:getsubgroup(i)
         if g then
             table.insert(parts, {obj = g, type = "group", tag = "group_"..i})
         end
     end
+else
+    log("Note: root.subgroupcount not accessible or nil.")
 end
 
 log(string.format("Found %d top-level parts.", #parts))
 
 if #parts == 0 then
-    log("No parts found.")
+    log("No parts found (or enumeration failed).")
     return
 end
 
@@ -135,11 +148,6 @@ for i, p in ipairs(parts) do
         table.insert(partsWithPos, {part = p.obj, x = cx, y = cy, tag = p.tag})
     else
         log("WARNING: Could not determine position for " .. p.tag)
-        -- Fallback: try matrix?
-        local mat = p.obj.matrix
-        if mat then
-            -- Fallback matrix usage could be added here if needed, but AABB is safer
-        end
     end
 end
 
