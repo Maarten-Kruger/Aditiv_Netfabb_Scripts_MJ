@@ -77,12 +77,26 @@ local function enum_mesh_instances()
     return list
 end
 
+-- Helper: enumerate using system.getPart (fallback/robust method)
+local function enum_system_parts()
+    local list = {}
+    local pc = safeExec(function() return system.getPartCount() end) or 0
+    for i = 0, pc-1 do
+        local part = safeExec(function() return system.getPart(i) end)
+        if part then
+            table.insert(list, {obj = part, tag = string.format("system.part[%d]", i)})
+        end
+    end
+    return list
+end
+
 system:log("Attempting multiple enumeration strategies...")
 
 local lists = {
     {name = "items",         list = enum_items()},
     {name = "mesh_instances",list = enum_mesh_instances()},
-    {name = "meshes",        list = enum_meshes()}
+    {name = "meshes",        list = enum_meshes()},
+    {name = "system_parts",  list = enum_system_parts()}
 }
 
 -- Log counts and pick the largest result (most likely the actual placements)
@@ -104,6 +118,7 @@ local uniqueMap = {}
 local parts = {}
 for _, e in ipairs(best.list) do
     local key = tostring(e.obj)
+    system:log(string.format("Candidate %s: type=%s key=%s", e.tag, type(e.obj), key))
     if not uniqueMap[key] then
         uniqueMap[key] = true
         table.insert(parts, {obj = e.obj, tag = e.tag})
@@ -178,12 +193,25 @@ for idx, p in ipairs(parts) do
             x = safeExec(function() return mat:get(0,3) end)
             y = safeExec(function() return mat:get(1,3) end)
         end
+        if x and y then system:log(string.format("Used 'matrix' convention %s for %s", chosenConv, p.tag)) end
     end
+
     -- fallback: if matrix not present, try partObj.center (some APIs)
     if (not x or not y) and safeExec(function() return partObj.center end) then
         local c = safeExec(function() return partObj.center end)
         if c and type(c.x) == "number" and type(c.y) == "number" then
             x = c.x; y = c.y
+            system:log(string.format("Used 'center' property for %s", p.tag))
+        end
+    end
+
+    -- fallback: try getOutbox (reliable for meshes/groups)
+    if (not x or not y) then
+        local box = safeExec(function() return partObj:getOutbox() end)
+        if box and box.min and box.max and type(box.min.x)=="number" and type(box.max.x)=="number" then
+            x = (box.min.x + box.max.x) / 2
+            y = (box.min.y + box.max.y) / 2
+            system:log(string.format("Used 'getOutbox' for %s", p.tag))
         end
     end
 
