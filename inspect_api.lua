@@ -1,7 +1,7 @@
 --[[
   API Inspector / Discovery Script
-
-  Run this script to dump the available methods and properties of the
+  
+  Run this script to dump the available methods and properties of the 
   Netfabb Lua objects (Part, Mesh, System) to a log file.
   This helps identifying the correct API calls for your version.
 --]]
@@ -22,7 +22,7 @@ log("--- API Inspector Start ---")
 -- Helper to dump table/userdata
 local function dump_obj(name, obj)
     log("Dumping " .. name .. " (" .. type(obj) .. "):")
-
+    
     -- Try metatable
     local mt = getmetatable(obj)
     if mt then
@@ -38,7 +38,7 @@ local function dump_obj(name, obj)
              end
         end
     end
-
+    
     -- Try pairs (often fails for userdata)
     local ok, err = pcall(function()
         for k, v in pairs(obj) do
@@ -56,13 +56,13 @@ if tray then
     dump_obj("tray", tray)
     if tray.root then
         dump_obj("tray.root", tray.root)
-
+        
         -- Get first item
         if tray.root.getitem then
             local item = tray.root:getitem(0)
             if item then
                 dump_obj("First Part (Item 0)", item)
-
+                
                 -- Get Mesh
                 if item.getmesh then
                     local mesh = item:getmesh(0)
