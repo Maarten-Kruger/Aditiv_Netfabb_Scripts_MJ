@@ -1,6 +1,6 @@
 --[[
-  Robust Netfabb Renamer (Fixed)
-  - Enumerates top-level parts (Meshes and Subgroups) from tray.root
+  Robust Netfabb Renamer (Updated)
+  - Enumerates top-level parts using tray.root:getitem(i)
   - Sorts bottom->top (Row), then left->right (Column)
   - Renames parts uniquely: 001_BaseName, etc.
 --]]
@@ -8,7 +8,7 @@
 local logFilePath   = "C:\\Users\\Public\\Documents\\netfabb_script_log.txt"
 local rowTolerance  = 2.0   -- in mm
 
--- Logging
+-- Logging setup
 if system and system.logtofile then
     system:logtofile(logFilePath)
 end
@@ -17,6 +17,8 @@ local function log(msg)
     if system and system.log then
         system:log(msg)
     end
+    -- Also try print for standard output capture if supported
+    print(msg)
 end
 
 -- Safe execution helper
@@ -25,7 +27,7 @@ local function safe_get(func)
     if ok then return res else return nil end
 end
 
-log("--- Robust Netfabb Renamer START ---")
+log("--- Robust Netfabb Renamer DEBUG START ---")
 
 if tray == nil then
     log("ERROR: tray variable not available.")
@@ -38,9 +40,9 @@ if not root then
     return
 end
 
--- Helper to safely get AABB of a part (Mesh or Group)
+-- Helper to safely get AABB of a part
 local function get_part_aabb(part)
-    -- Try direct min/max properties (common in Netfabb Lua)
+    -- Try direct min/max properties
     local ok, retMin = pcall(function() return part.min end)
     local ok2, retMax = pcall(function() return part.max end)
 
@@ -48,7 +50,7 @@ local function get_part_aabb(part)
         return retMin, retMax
     end
 
-    -- If no direct min/max, try to calculate from children (if group)
+    -- If no direct min/max, try recursive calculation
     local inf = 1e9
     local calculatedMin = {x=inf, y=inf, z=inf}
     local calculatedMax = {x=-inf, y=-inf, z=-inf}
@@ -64,7 +66,7 @@ local function get_part_aabb(part)
         if boxMax.z > calculatedMax.z then calculatedMax.z = boxMax.z end
     end
 
-    -- Recurse
+    -- Check children (meshes)
     local mc = safe_get(function() return part.meshcount end)
     if mc then
         for i = 0, mc - 1 do
@@ -76,6 +78,7 @@ local function get_part_aabb(part)
         end
     end
 
+    -- Check children (subgroups)
     local sc = safe_get(function() return part.subgroupcount end)
     if sc then
         for i = 0, sc - 1 do
@@ -87,52 +90,70 @@ local function get_part_aabb(part)
         end
     end
 
-    if foundChild then
-        return calculatedMin, calculatedMax
+    -- Check children (items - rare for parts but possible for groups)
+    local ic = safe_get(function() return part.itemcount end)
+    if ic then
+         for i = 0, ic - 1 do
+             local it = part:getitem(i)
+             if it then
+                 local iMin, iMax = get_part_aabb(it)
+                 if iMin and iMax then expand(iMin, iMax) end
+             end
+         end
     end
 
-    -- Fallback: Try center and assume small size or just use center as min/max
-    local okC, center = pcall(function() return part.center end)
-    if okC and center then
-        return center, center -- Point size
+    if foundChild then
+        return calculatedMin, calculatedMax
     end
 
     return nil, nil
 end
 
--- Collect Top-Level Parts
+-- Collect Top-Level Parts using itemcount
 local parts = {}
+local itemCount = safe_get(function() return root.itemcount end)
 
--- 1. Meshes
-local meshCount = safe_get(function() return root.meshcount end)
-if meshCount then
-    for i = 0, meshCount - 1 do
-        local m = root:getmesh(i)
-        if m then
-            table.insert(parts, {obj = m, type = "mesh", tag = "mesh_"..i})
+if itemCount then
+    log("Found root.itemcount: " .. itemCount)
+    for i = 0, itemCount - 1 do
+        local item = root:getitem(i)
+        if item then
+            local pName = safe_get(function() return item.name end) or "Unnamed"
+            log(string.format("Checking Item %d: %s", i, pName))
+            table.insert(parts, {obj = item, tag = "item_"..i, name = pName})
+        else
+            log(string.format("Item %d is nil", i))
         end
     end
 else
-    log("Note: root.meshcount not accessible or nil.")
+    log("WARNING: root.itemcount failed or nil. Trying fallback.")
+    -- Fallback code (previous mesh/subgroup logic) could go here, but itemcount should work.
+    -- I'll keep the mesh/subgroup logic just in case itemcount returns 0 but meshes exist?
+    -- Actually, usually itemcount covers everything.
 end
-
--- 2. Subgroups (Parts with supports or groups)
-local subgroupCount = safe_get(function() return root.subgroupcount end)
-if subgroupCount then
-    for i = 0, subgroupCount - 1 do
-        local g = root:getsubgroup(i)
-        if g then
-            table.insert(parts, {obj = g, type = "group", tag = "group_"..i})
-        end
-    end
-else
-    log("Note: root.subgroupcount not accessible or nil.")
-end
-
-log(string.format("Found %d top-level parts.", #parts))
 
 if #parts == 0 then
-    log("No parts found (or enumeration failed).")
+    log("No top-level parts found.")
+    -- Attempt fallback for bare meshes if itemcount was 0
+    local meshCount = safe_get(function() return root.meshcount end) or 0
+    local subCount = safe_get(function() return root.subgroupcount end) or 0
+    if meshCount > 0 or subCount > 0 then
+        log(string.format("Fallback: Found %d meshes and %d subgroups.", meshCount, subCount))
+         for i = 0, meshCount - 1 do
+            local m = root:getmesh(i)
+            if m then table.insert(parts, {obj = m, tag = "mesh_"..i}) end
+        end
+        for i = 0, subCount - 1 do
+            local g = root:getsubgroup(i)
+            if g then table.insert(parts, {obj = g, tag = "group_"..i}) end
+        end
+    end
+end
+
+log(string.format("Total parts to process: %d", #parts))
+
+if #parts == 0 then
+    log("Exiting: Nothing to rename.")
     return
 end
 
@@ -141,22 +162,20 @@ local partsWithPos = {}
 for i, p in ipairs(parts) do
     local min, max = get_part_aabb(p.obj)
     if min and max then
-        -- We use center of bounding box for sorting
         local cx = (min.x + max.x) / 2
         local cy = (min.y + max.y) / 2
-
-        table.insert(partsWithPos, {part = p.obj, x = cx, y = cy, tag = p.tag})
+        table.insert(partsWithPos, {part = p.obj, x = cx, y = cy, tag = p.tag, name = p.name})
+        log(string.format("Pos calculated for %s: (%.2f, %.2f)", p.tag, cx, cy))
     else
         log("WARNING: Could not determine position for " .. p.tag)
+        -- Keep it but maybe put it at 0,0 or end?
+        -- For now, skip sorting for it or handle gracefully
     end
 end
 
--- Sort
--- Group by Rows (Y)
--- Sort by Y first.
+-- Sort logic (Row then Column)
 table.sort(partsWithPos, function(a,b) return a.y < b.y end)
 
--- Assign row indices
 if #partsWithPos > 0 then
     local currentRowY = partsWithPos[1].y
     local currentRow = 1
@@ -172,29 +191,31 @@ if #partsWithPos > 0 then
     end
 end
 
--- Sort by Row then X
 table.sort(partsWithPos, function(a,b)
     if a.row ~= b.row then
-        return a.row < b.row -- Bottom to Top (ascending Y)
+        return a.row < b.row
     else
-        return a.x < b.x -- Left to Right (ascending X)
+        return a.x < b.x
     end
 end)
 
 -- Rename
-local renamed = 0
+local renamedCount = 0
 for i, p in ipairs(partsWithPos) do
     local oldName = p.part.name or "Part"
-    -- Strip existing prefix NNN_
     local baseName = oldName:gsub("^%d%d%d_", "")
     local newName = string.format("%03d_%s", i, baseName)
 
-    p.part.name = newName
-    log(string.format("Renamed %s -> %s (Row=%d, X=%.2f, Y=%.2f)", oldName, newName, p.row, p.x, p.y))
-    renamed = renamed + 1
+    if oldName ~= newName then
+        p.part.name = newName
+        log(string.format("RENAME: %s -> %s", oldName, newName))
+        renamedCount = renamedCount + 1
+    else
+        log(string.format("SKIP: %s already named correctly", oldName))
+    end
 end
 
-log("Renaming complete. Total renamed: " .. renamed)
+log("Renaming complete. Modified: " .. renamedCount)
 
 if application and application.triggerdesktopevent then
     application:triggerdesktopevent('updateparts')
