@@ -1,259 +1,203 @@
 --[[
-  Robust Netfabb Renamer
-  - Enumerates placed parts (tries items, mesh instances, meshes)
-  - Auto-detects matrix translation convention and units (m vs mm)
-  - Groups rows by configurable tolerance (mm) and sorts bottom->top, left->right
-  - Renames every placement uniquely: 001_BaseName, 002_BaseName, ...
-  - Logs diagnostics to C:\Users\Public\Documents\netfabb_script_log.txt
+  Robust Netfabb Renamer (Fixed)
+  - Enumerates top-level parts (Meshes and Subgroups) from tray.root
+  - Sorts bottom->top (Row), then left->right (Column)
+  - Renames parts uniquely: 001_BaseName, etc.
 --]]
 
--- === CONFIG ===
 local logFilePath   = "C:\\Users\\Public\\Documents\\netfabb_script_log.txt"
-local rowTolerance  = 2.0   -- in mm: change if your rows have different spacing
--- =============
+local rowTolerance  = 2.0   -- in mm
 
-local function safeExec(f)
-    local ok, res = pcall(f)
-    if ok then return res end
-    return nil
+-- Logging
+if system and system.logtofile then
+    system:logtofile(logFilePath)
 end
 
-system:logtofile(logFilePath)
-system:log("--- Robust Netfabb Renamer START ---")
-system:log("Row tolerance (mm): " .. tostring(rowTolerance))
-
-if _G.tray == nil then
-    system:log("ERROR: _G.tray not available. Run from Main Lua Automation with an active build room.")
-    return
-end
-local tray = _G.tray
-system:log("Active platform: " .. tostring(tray.name))
-
--- Helper: enumerate meshes (basic)
-local function enum_meshes()
-    local list = {}
-    local mc = safeExec(function() return tray.root.meshcount end) or 0
-    for i = 0, mc-1 do
-        local okMesh = safeExec(function() return tray.root:getmesh(i) end)
-        if okMesh then
-            table.insert(list, {obj = okMesh, tag = string.format("mesh[%d]", i)})
-        end
+local function log(msg)
+    if system and system.log then
+        system:log(msg)
     end
-    return list
 end
 
--- Helper: enumerate tray items (if available)
-local function enum_items()
-    local list = {}
-    local ic = safeExec(function() return tray.root.itemcount end)
-    if not ic or ic == 0 then return list end
-    for i = 0, ic-1 do
-        local it = safeExec(function() return tray.root:getitem(i) end)
-        if it then
-            table.insert(list, {obj = it, tag = string.format("item[%d]", i)})
-        end
-    end
-    return list
+-- Safe execution helper
+local function safe_get(func)
+    local ok, res = pcall(func)
+    if ok then return res else return nil end
 end
 
--- Helper: enumerate mesh instances (if meshes expose instances)
-local function enum_mesh_instances()
-    local list = {}
-    local mc = safeExec(function() return tray.root.meshcount end) or 0
-    for i = 0, mc-1 do
-        local m = safeExec(function() return tray.root:getmesh(i) end)
-        if m then
-            local ic = safeExec(function() return m.instancecount end)
-            if ic and ic > 0 then
-                for j = 0, ic-1 do
-                    local inst = safeExec(function() return m:getinstance(j) end)
-                    if inst then
-                        table.insert(list, {obj = inst, tag = string.format("mesh[%d].instance[%d]", i, j)})
-                    end
-                end
-            end
-        end
-    end
-    return list
-end
+log("--- Robust Netfabb Renamer START ---")
 
-system:log("Attempting multiple enumeration strategies...")
-
-local lists = {
-    {name = "items",         list = enum_items()},
-    {name = "mesh_instances",list = enum_mesh_instances()},
-    {name = "meshes",        list = enum_meshes()}
-}
-
--- Log counts and pick the largest result (most likely the actual placements)
-local best = nil
-for _, entry in ipairs(lists) do
-    system:log(string.format("Found %d entries using '%s' enumeration.", #entry.list, entry.name))
-    if best == nil or #entry.list > #best.list then best = entry end
-end
-
-if best == nil or #best.list == 0 then
-    system:log("ERROR: No parts found by any enumeration strategy. Aborting.")
+if tray == nil then
+    log("ERROR: tray variable not available.")
     return
 end
 
-system:log(string.format("Using enumeration method: '%s' (count=%d)", best.name, #best.list))
+local root = tray.root
+if not root then
+    log("ERROR: tray.root not available.")
+    return
+end
 
--- Deduplicate by tostring(obj) to avoid double-counting same userdata in some APIs
-local uniqueMap = {}
+-- Helper to safely get AABB of a part (Mesh or Group)
+local function get_part_aabb(part)
+    -- Try direct min/max properties (common in Netfabb Lua)
+    local ok, retMin = pcall(function() return part.min end)
+    local ok2, retMax = pcall(function() return part.max end)
+
+    if ok and ok2 and retMin and retMax then
+        return retMin, retMax
+    end
+
+    -- If no direct min/max, try to calculate from children (if group)
+    local inf = 1e9
+    local calculatedMin = {x=inf, y=inf, z=inf}
+    local calculatedMax = {x=-inf, y=-inf, z=-inf}
+    local foundChild = false
+
+    local function expand(boxMin, boxMax)
+        foundChild = true
+        if boxMin.x < calculatedMin.x then calculatedMin.x = boxMin.x end
+        if boxMin.y < calculatedMin.y then calculatedMin.y = boxMin.y end
+        if boxMin.z < calculatedMin.z then calculatedMin.z = boxMin.z end
+        if boxMax.x > calculatedMax.x then calculatedMax.x = boxMax.x end
+        if boxMax.y > calculatedMax.y then calculatedMax.y = boxMax.y end
+        if boxMax.z > calculatedMax.z then calculatedMax.z = boxMax.z end
+    end
+
+    -- Recurse
+    local mc = safe_get(function() return part.meshcount end)
+    if mc then
+        for i = 0, mc - 1 do
+             local m = part:getmesh(i)
+             if m then
+                 local mMin, mMax = get_part_aabb(m)
+                 if mMin and mMax then expand(mMin, mMax) end
+             end
+        end
+    end
+
+    local sc = safe_get(function() return part.subgroupcount end)
+    if sc then
+        for i = 0, sc - 1 do
+             local g = part:getsubgroup(i)
+             if g then
+                 local gMin, gMax = get_part_aabb(g)
+                 if gMin and gMax then expand(gMin, gMax) end
+             end
+        end
+    end
+
+    if foundChild then
+        return calculatedMin, calculatedMax
+    end
+
+    -- Fallback: Try center and assume small size or just use center as min/max
+    local okC, center = pcall(function() return part.center end)
+    if okC and center then
+        return center, center -- Point size
+    end
+
+    return nil, nil
+end
+
+-- Collect Top-Level Parts
 local parts = {}
-for _, e in ipairs(best.list) do
-    local key = tostring(e.obj)
-    if not uniqueMap[key] then
-        uniqueMap[key] = true
-        table.insert(parts, {obj = e.obj, tag = e.tag})
-    end
-end
 
-system:log(string.format("Unique placements selected: %d", #parts))
-
--- === Detect matrix translation convention (two common conventions) ===
--- Convention A: matrix:get(3,0) , matrix:get(3,1)
--- Convention B: matrix:get(0,3) , matrix:get(1,3)
-local valsA = {minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9, count=0}
-local valsB = {minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9, count=0}
-
-for _, p in ipairs(parts) do
-    local mat = safeExec(function() return p.obj.matrix end)
-    if mat then
-        local xa = safeExec(function() return mat:get(3,0) end)
-        local ya = safeExec(function() return mat:get(3,1) end)
-        if xa and ya and type(xa) == "number" and type(ya) == "number" then
-            valsA.count = valsA.count + 1
-            if xa < valsA.minx then valsA.minx = xa end
-            if xa > valsA.maxx then valsA.maxx = xa end
-            if ya < valsA.miny then valsA.miny = ya end
-            if ya > valsA.maxy then valsA.maxy = ya end
-        end
-
-        local xb = safeExec(function() return mat:get(0,3) end)
-        local yb = safeExec(function() return mat:get(1,3) end)
-        if xb and yb and type(xb) == "number" and type(yb) == "number" then
-            valsB.count = valsB.count + 1
-            if xb < valsB.minx then valsB.minx = xb end
-            if xb > valsB.maxx then valsB.maxx = xb end
-            if yb < valsB.miny then valsB.miny = yb end
-            if yb > valsB.maxy then valsB.maxy = yb end
+-- 1. Meshes
+local meshCount = safe_get(function() return root.meshcount end)
+if meshCount then
+    for i = 0, meshCount - 1 do
+        local m = root:getmesh(i)
+        if m then
+            table.insert(parts, {obj = m, type = "mesh", tag = "mesh_"..i})
         end
     end
-end
-
-local rangeA = 0
-if valsA.count > 0 then rangeA = (valsA.maxx - valsA.minx) + (valsA.maxy - valsA.miny) end
-local rangeB = 0
-if valsB.count > 0 then rangeB = (valsB.maxx - valsB.minx) + (valsB.maxy - valsB.miny) end
-
-system:log(string.format("ConventionA count=%d range=%.6f ; ConventionB count=%d range=%.6f",
-    valsA.count, rangeA, valsB.count, rangeB))
-
-local chosenConv = nil
-if valsA.count == 0 and valsB.count == 0 then
-    system:log("ERROR: No usable matrix translations found. Aborting.")
-    return
-elseif rangeA >= rangeB then
-    chosenConv = "A" -- use mat:get(3,0)/(3,1)
 else
-    chosenConv = "B" -- use mat:get(0,3)/(1,3)
+    log("Note: root.meshcount not accessible or nil.")
 end
 
-system:log("Chosen matrix translation convention: " .. chosenConv)
+-- 2. Subgroups (Parts with supports or groups)
+local subgroupCount = safe_get(function() return root.subgroupcount end)
+if subgroupCount then
+    for i = 0, subgroupCount - 1 do
+        local g = root:getsubgroup(i)
+        if g then
+            table.insert(parts, {obj = g, type = "group", tag = "group_"..i})
+        end
+    end
+else
+    log("Note: root.subgroupcount not accessible or nil.")
+end
 
--- Build partsWithPositions using chosen convention
+log(string.format("Found %d top-level parts.", #parts))
+
+if #parts == 0 then
+    log("No parts found (or enumeration failed).")
+    return
+end
+
+-- Calculate Positions
 local partsWithPos = {}
-local minX, maxX, minY, maxY = 1e9, -1e9, 1e9, -1e9
-for idx, p in ipairs(parts) do
-    local partObj = p.obj
-    local mat = safeExec(function() return partObj.matrix end)
-    local x,y = nil,nil
-    if mat then
-        if chosenConv == "A" then
-            x = safeExec(function() return mat:get(3,0) end)
-            y = safeExec(function() return mat:get(3,1) end)
-        else
-            x = safeExec(function() return mat:get(0,3) end)
-            y = safeExec(function() return mat:get(1,3) end)
-        end
-    end
-    -- fallback: if matrix not present, try partObj.center (some APIs)
-    if (not x or not y) and safeExec(function() return partObj.center end) then
-        local c = safeExec(function() return partObj.center end)
-        if c and type(c.x) == "number" and type(c.y) == "number" then
-            x = c.x; y = c.y
-        end
-    end
+for i, p in ipairs(parts) do
+    local min, max = get_part_aabb(p.obj)
+    if min and max then
+        -- We use center of bounding box for sorting
+        local cx = (min.x + max.x) / 2
+        local cy = (min.y + max.y) / 2
 
-    if x and y and type(x) == "number" and type(y) == "number" then
-        table.insert(partsWithPos, {part = partObj, x = x, y = y, tag = p.tag})
-        if x < minX then minX = x end
-        if x > maxX then maxX = x end
-        if y < minY then minY = y end
-        if y > maxY then maxY = y end
-        system:log(string.format("Candidate %s -> raw coords (%.6f, %.6f)", p.tag, x, y))
+        table.insert(partsWithPos, {part = p.obj, x = cx, y = cy, tag = p.tag})
     else
-        system:log(string.format("WARNING: Could not read coords for %s; skipping", p.tag))
+        log("WARNING: Could not determine position for " .. p.tag)
     end
 end
 
-if #partsWithPos == 0 then
-    system:log("ERROR: No placements with valid coordinates found. Aborting.")
-    return
+-- Sort
+-- Group by Rows (Y)
+-- Sort by Y first.
+table.sort(partsWithPos, function(a,b) return a.y < b.y end)
+
+-- Assign row indices
+if #partsWithPos > 0 then
+    local currentRowY = partsWithPos[1].y
+    local currentRow = 1
+    partsWithPos[1].row = currentRow
+
+    for i = 2, #partsWithPos do
+        local p = partsWithPos[i]
+        if math.abs(p.y - currentRowY) > rowTolerance then
+            currentRow = currentRow + 1
+            currentRowY = p.y
+        end
+        p.row = currentRow
+    end
 end
 
--- Detect units: if ranges are small (< 10) assume meters, else mm
-local maxAbs = math.max(math.abs(minX), math.abs(maxX), math.abs(minY), math.abs(maxY))
-local unitFactor = 1.0
-local unitNote = "mm"
-if maxAbs > 0 and maxAbs < 10 then
-    -- values look like meters -> convert to mm
-    unitFactor = 1000.0
-    unitNote = "meters->converted_to_mm"
-    system:log(string.format("Detected small coordinate magnitudes (maxAbs=%.6f) -> assuming meters, converting *1000 to mm.", maxAbs))
-else
-    system:log(string.format("Detected coordinates appear to be in mm or large units (maxAbs=%.6f) -> using as mm.", maxAbs))
-end
-
--- Apply conversion and compute row keys
-for _, p in ipairs(partsWithPos) do
-    p.x = p.x * unitFactor
-    p.y = p.y * unitFactor
-    -- compute integer row key by rounding to nearest rowTolerance
-    p.rowKey = math.floor(p.y / rowTolerance + 0.5)
-end
-
--- Sort by row (ascending = bottom->top) then by x (ascending = left->right)
+-- Sort by Row then X
 table.sort(partsWithPos, function(a,b)
-    if a.rowKey ~= b.rowKey then
-        return a.rowKey < b.rowKey
+    if a.row ~= b.row then
+        return a.row < b.row -- Bottom to Top (ascending Y)
     else
-        return a.x < b.x
+        return a.x < b.x -- Left to Right (ascending X)
     end
 end)
 
-system:log(string.format("Sorting complete. Using rowTolerance=%.2f mm. Unit handling: %s", rowTolerance, unitNote))
-
--- Rename sequentially; remove existing numeric prefix of any length (NNN_)
+-- Rename
 local renamed = 0
 for i, p in ipairs(partsWithPos) do
-    local obj = p.part
-    local oldName = safeExec(function() return obj.name end) or ""
-    local base = oldName:gsub("^%d+_", "")
-    if base == "" then base = "Part" end
-    local newName = string.format("%03d_%s", i, base)
-    local ok = pcall(function() obj.name = newName end)
-    if ok then
-        renamed = renamed + 1
-        system:log(string.format("Renamed [%03d] %s -> %s  (X=%.2fmm Y=%.2fmm row=%d tag=%s)",
-            i, oldName, newName, p.x, p.y, p.rowKey, p.tag))
-    else
-        system:log(string.format("ERROR: Failed to rename object (tag=%s). Tried name: %s", p.tag, newName))
-    end
+    local oldName = p.part.name or "Part"
+    -- Strip existing prefix NNN_
+    local baseName = oldName:gsub("^%d%d%d_", "")
+    local newName = string.format("%03d_%s", i, baseName)
+
+    p.part.name = newName
+    log(string.format("Renamed %s -> %s (Row=%d, X=%.2f, Y=%.2f)", oldName, newName, p.row, p.x, p.y))
+    renamed = renamed + 1
 end
 
-system:log(string.format("Finished renaming. Total processed: %d, renamed: %d", #partsWithPos, renamed))
-system:log("--- Robust Netfabb Renamer END ---")
+log("Renaming complete. Total renamed: " .. renamed)
 
+if application and application.triggerdesktopevent then
+    application:triggerdesktopevent('updateparts')
+end
+
+log("--- Robust Netfabb Renamer END ---")
