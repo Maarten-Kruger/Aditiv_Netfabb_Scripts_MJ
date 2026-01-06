@@ -26,8 +26,8 @@ function DoDraw ()
     graphdrawer.caption_y = 'Distance';
     graphdrawer.unit_x = 's';
     graphdrawer.unit_y = 'mm';
-    graphdrawer.formatter_x = '\%.1fs';
-    graphdrawer.formatter_y = '\%.0f';
+    graphdrawer.formatter_x = '%.1fs';
+    graphdrawer.formatter_y = '%.0f';
     graphdrawer.grid_space_x = 10;
     graphdrawer.grid_space_y = 5;
     graphdrawer.font_size = 40;
