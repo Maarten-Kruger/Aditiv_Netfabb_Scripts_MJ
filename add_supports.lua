@@ -95,6 +95,23 @@ local function try_apply_support(entity, name)
                         log("Warning: Generated support has 0 triangles. It may not be visible.")
                      end
 
+                     -- User requested to explicitly add the mesh to the tray to ensure visibility
+                     log("  Adding support mesh to tray (tray.root:addmesh)...")
+                     local ok_add, err_add = pcall(function()
+                         if tray and tray.root and tray.root.addmesh then
+                             tray.root:addmesh(support_obj)
+                             log("  Success: Support mesh added to tray.")
+                         elseif tray and tray.addmesh then
+                             tray:addmesh(support_obj)
+                             log("  Success: Support mesh added to tray via tray:addmesh.")
+                         else
+                             log("  Warning: neither tray.root.addmesh nor tray:addmesh available.")
+                         end
+                     end)
+                     if not ok_add then
+                         log("  Error adding support mesh to tray: " .. tostring(err_add))
+                     end
+
                      log("  Assigning to entity...")
                      -- assignsupport is a method on TrayMesh (entity)
                      if entity.assignsupport then
