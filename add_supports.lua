@@ -1,7 +1,7 @@
 -- Add Supports Script
 -- Runs a Netfabb support script (XML) on all meshes in the tray.
 
-local support_xml_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Test Support Script.support"
+local support_xml_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Temporary support script.support"
 local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\netfabb_support_log.txt"
 
 -- 1. Logging Setup
