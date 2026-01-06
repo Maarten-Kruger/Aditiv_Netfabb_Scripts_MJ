@@ -2,7 +2,7 @@
 -- Runs a Netfabb support script (XML) on all meshes in the tray.
 
 local support_xml_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Hyrax 1.xml"
-local log_file_path = "C:\\Users\\Public\\Documents\\netfabb_support_log.txt"
+local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\netfabb_support_log.txt"
 
 -- 1. Logging Setup
 if system and system.logtofile then
