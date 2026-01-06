@@ -87,10 +87,29 @@ local function try_apply_support(entity, name)
                  local support_obj = work_mesh:createsupport(support_xml_path)
 
                  if support_obj then
-                     log("  Support object created. Assigning to entity...")
+                     local tri_count = 0
+                     pcall(function() tri_count = support_obj.trianglecount end)
+                     log("  Support object created with " .. tostring(tri_count) .. " triangles.")
+
+                     if tri_count == 0 then
+                        log("Warning: Generated support has 0 triangles. It may not be visible.")
+                     end
+
+                     log("  Assigning to entity...")
                      -- assignsupport is a method on TrayMesh (entity)
                      if entity.assignsupport then
                         entity:assignsupport(support_obj, false)
+
+                        -- Force visibility and selection to ensure it is shown in GUI
+                        pcall(function()
+                            entity.selected = true
+                            log("  Entity selected.")
+                        end)
+                        pcall(function()
+                            entity.visible = true
+                            log("  Entity visibility set to true.")
+                        end)
+
                         log("Success: Support assigned via createsupport/assignsupport.")
                         applied = true -- Mark as applied if successful inside pcall
                      else
@@ -243,8 +262,18 @@ if not found_parts then
 end
 
 -- Update view
-if application and application.triggerdesktopevent then
-    pcall(function() application:triggerdesktopevent('updateparts') end)
+if application then
+    log("Application object exists. Triggering updateparts...")
+    if application.triggerdesktopevent then
+        local ok_update, err_update = pcall(function() application:triggerdesktopevent('updateparts') end)
+        if not ok_update then
+            log("Error triggering updateparts: " .. tostring(err_update))
+        end
+    else
+        log("application.triggerdesktopevent is missing.")
+    end
+else
+    log("Application object missing. Cannot trigger updateparts.")
 end
 
 log("--- End Add Supports Script ---")
