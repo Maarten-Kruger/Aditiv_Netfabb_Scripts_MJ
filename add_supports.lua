@@ -58,6 +58,60 @@ local function try_apply_support(entity, name)
     end
 
     if not applied then
+        -- Try the createSupport / assignSupport workflow (common for TrayMesh objects)
+        -- Reference: Script8_CreateSupport.lua
+        log("Attempting createsupport/assignsupport workflow on " .. name)
+        local ok_workflow, err_workflow = pcall(function()
+             -- We expect entity to be a TrayMesh which has a .mesh property (LuaMesh)
+             if entity.mesh then
+                 local luamesh = entity.mesh
+                 local matrix = entity.matrix
+
+                 log("  Entity has .mesh property. Proceeding.")
+
+                 -- Duplicate the mesh to avoid modifying the original during support calculation?
+                 -- Script8 does: newMesh = luamesh:dupe(); newMesh:applymatrix(matrix);
+                 -- This creates a world-space representation of the mesh to generate supports on.
+
+                 local work_mesh = luamesh
+                 if luamesh.dupe then
+                    work_mesh = luamesh:dupe()
+                 end
+
+                 if matrix and work_mesh.applymatrix then
+                    work_mesh:applymatrix(matrix)
+                 end
+
+                 log("  Generating support with XML: " .. support_xml_path)
+                 -- createsupport is a method on LuaMesh
+                 local support_obj = work_mesh:createsupport(support_xml_path)
+
+                 if support_obj then
+                     log("  Support object created. Assigning to entity...")
+                     -- assignsupport is a method on TrayMesh (entity)
+                     if entity.assignsupport then
+                        entity:assignsupport(support_obj, false)
+                        log("Success: Support assigned via createsupport/assignsupport.")
+                        applied = true -- Mark as applied if successful inside pcall
+                     else
+                        error("Entity lacks assignsupport method")
+                     end
+                 else
+                     error("createsupport returned nil (check XML path?)")
+                 end
+             else
+                 error("Entity does not have .mesh property")
+             end
+        end)
+
+        if ok_workflow and applied then
+            -- applied is already set to true inside pcall if successful
+        elseif not ok_workflow then
+            log("Failed: createsupport workflow error: " .. tostring(err_workflow))
+        end
+    end
+
+    if not applied then
         -- Try system level calls if entity methods fail
         local system_has_method = false
         pcall(function()
