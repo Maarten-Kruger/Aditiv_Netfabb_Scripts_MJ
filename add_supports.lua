@@ -35,7 +35,12 @@ local function try_apply_support(entity, name)
     local applied = false
 
     for _, method_name in ipairs(methods_to_try) do
-        if entity[method_name] then
+        local method_exists = false
+        pcall(function()
+            if entity[method_name] then method_exists = true end
+        end)
+
+        if method_exists then
             log("Attempting method: " .. method_name .. " on " .. name)
             local ok, err = pcall(function()
                 -- Assuming the method takes the path as the first argument
@@ -54,7 +59,12 @@ local function try_apply_support(entity, name)
 
     if not applied then
         -- Try system level calls if entity methods fail
-        if system and system.runsupportscript then
+        local system_has_method = false
+        pcall(function()
+            if system and system.runsupportscript then system_has_method = true end
+        end)
+
+        if system_has_method then
              log("Attempting system:runsupportscript on " .. name)
              local ok, err = pcall(function()
                 system:runsupportscript(entity, support_xml_path)
