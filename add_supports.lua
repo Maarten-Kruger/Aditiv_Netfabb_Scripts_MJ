@@ -2,7 +2,7 @@
 -- Runs a Netfabb support script (XML) on all meshes in the tray.
 
 local support_xml_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Hyrax 1.xml"
-local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\netfabb_support_log.txt"
+local log_file_path = "C:\\Users\\Public\\Documents\\netfabb_support_log.txt"
 
 -- 1. Logging Setup
 if system and system.logtofile then
@@ -81,16 +81,40 @@ local function try_apply_support(entity, name)
     if not applied then
         log("Warning: Could not find or execute a support method for " .. name)
 
-        -- Last ditch effort: list methods available on entity for debugging
-        log("  Available keys on entity:")
-        local ok_pairs, err_pairs = pcall(function()
-             for k,v in pairs(entity) do
-                 -- Only log string keys to avoid clutter/errors
-                 if type(k) == "string" then
-                    -- log("    " .. k) -- Uncomment if deep debugging is needed
-                 end
+        log("--- Debugging Entity ---")
+        -- Try to get metatable
+        local mt = getmetatable(entity)
+        if mt then
+            log("Metatable found. Keys:")
+            for k,v in pairs(mt) do
+                log("  [MT] " .. tostring(k) .. ": " .. tostring(v))
+                if type(v) == "table" and k == "__index" then
+                     for k2,v2 in pairs(v) do
+                        log("    [__index] " .. tostring(k2))
+                     end
+                end
+            end
+        else
+            log("No metatable found.")
+        end
+
+        -- Try to inspect system global for support related functions
+        log("--- Debugging System ---")
+        if system then
+            for k,v in pairs(system) do
+                if type(k) == "string" and (string.find(string.lower(k), "support") or string.find(string.lower(k), "script")) then
+                    log("  [System] " .. k .. ": " .. tostring(v))
+                end
+            end
+        end
+        
+        -- Try to inspect global _G
+        log("--- Debugging Globals ---")
+        for k,v in pairs(_G) do
+             if type(k) == "string" and (string.find(string.lower(k), "support") or string.find(string.lower(k), "netfabb")) then
+                log("  [_G] " .. k .. ": " .. tostring(v))
              end
-        end)
+        end
     end
 end
 
