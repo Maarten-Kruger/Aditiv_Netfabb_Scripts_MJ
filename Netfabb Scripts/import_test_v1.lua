@@ -8,16 +8,19 @@ local import_path = "C:\\Users\\Maarten\\OneDrive\\Desktop"
 local file_extension = "stl"
 local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\import_test_log.txt"
 
+-- Setup Logging to File
+-- 'io' library is unavailable, so we use system:logtofile
+if system and system.logtofile then
+    local ok, err = pcall(function() system:logtofile(log_file_path) end)
+    if not ok then
+        if system.log then system:log("Failed to set log file: " .. tostring(err)) end
+    end
+end
+
 -- Logging Helper
 local function log(msg)
     if system and system.log then
         system:log(msg)
-    end
-    -- Append to file
-    local f = io.open(log_file_path, "a")
-    if f then
-        f:write(msg .. "\n")
-        f:close()
     end
 end
 
