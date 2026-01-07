@@ -61,12 +61,18 @@ if not fabbproject then
 end
 
 if not fabbproject then
-    log("Error: 'fabbproject' global is nil and could not be retrieved via system methods.")
-    -- Try to continue, but addtray will fail.
-    -- We can try to create a new one as a fallback for testing, but it might not be connected to the GUI.
-    -- fabbproject = system:newfabbproject()
-    -- log("Warning: Created a new fabbproject instance. Changes might not appear in the active GUI.")
-else
+    log("Error: 'fabbproject' global is nil and could not be retrieved via system methods. Attempting to create a new project instance...")
+    -- Fallback: Create a new fabbproject instance
+    local ok_new, new_proj = pcall(function() return system:newfabbproject() end)
+    if ok_new and new_proj then
+        fabbproject = new_proj
+        log("Warning: Created a new fabbproject instance. Changes might not appear in the active GUI.")
+    else
+        log("Error: Failed to create a new fabbproject instance.")
+    end
+end
+
+if fabbproject then
     log("fabbproject is available.")
 end
 
@@ -149,4 +155,8 @@ else
     log("Failed to list files in directory: " .. import_path)
 end
 
-system:messagebox("Batch Import Complete!")
+-- Safely attempt to show messagebox, falling back to log if it fails or doesn't exist
+local ok_msg = pcall(function() system:messagebox("Batch Import Complete!") end)
+if not ok_msg then
+    log("Batch Import Complete!")
+end
