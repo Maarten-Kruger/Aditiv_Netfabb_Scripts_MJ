@@ -1,10 +1,25 @@
 -- Batch Load Files to Separate Trays
 -- Author: Gemini (Based on your Netfabb Reference PDFs)
+-- Modified by Jules to fix logging and fabbproject access
 
 -- CONFIGURATION
 -- Change this path to your folder. Note the double backslashes for Windows.
 local import_path = "C:\\Users\\Maarten\\OneDrive\\Desktop"
 local file_extension = "stl"
+local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\import_test_log.txt"
+
+-- Logging Helper
+local function log(msg)
+    if system and system.log then
+        system:log(msg)
+    end
+    -- Append to file
+    local f = io.open(log_file_path, "a")
+    if f then
+        f:write(msg .. "\n")
+        f:close()
+    end
+end
 
 -- Ensure no trailing slash for getallfilesindirectory (Netfabb usually handles it, but consistency is good)
 if string.sub(import_path, -1) == "\\" then
@@ -16,9 +31,9 @@ local noBuildPath = "C:\\Users\\Maarten\\OneDrive\\Active\\Aditiv\\Aditiv_Netfab
 local zoneMeshTemplate = system:load3mf(noBuildPath)
 
 if zoneMeshTemplate then
-    system:log("No Build Zone geometry loaded.")
+    log("No Build Zone geometry loaded.")
 else
-    system:log("Failed to load No Build Zone file template.")
+    log("Failed to load No Build Zone file template.")
 end
 
 
@@ -27,12 +42,34 @@ end
 -- but if you need to create a new one, use: local proj = system:newfabbproject()
 -- For the active project, we usually access the 'fabbproject' global object if available.
 
+-- Attempt to retrieve fabbproject if it is nil
+-- We use a local variable to hold the reference, initializing from global if present
+local fabbproject = fabbproject
+
+if not fabbproject then
+    if system.getfabbproject then
+        fabbproject = system:getfabbproject()
+    elseif system.getactiveproject then
+        fabbproject = system:getactiveproject()
+    end
+end
+
+if not fabbproject then
+    log("Error: 'fabbproject' global is nil and could not be retrieved via system methods.")
+    -- Try to continue, but addtray will fail.
+    -- We can try to create a new one as a fallback for testing, but it might not be connected to the GUI.
+    -- fabbproject = system:newfabbproject()
+    -- log("Warning: Created a new fabbproject instance. Changes might not appear in the active GUI.")
+else
+    log("fabbproject is available.")
+end
+
 -- Use system:getallfilesindirectory instead of lfs
 local xmlfilelist = system:getallfilesindirectory(import_path)
 
 if xmlfilelist then
     local numberoffiles = xmlfilelist.childcount
-    system:log("Found " .. numberoffiles .. " files in directory.")
+    log("Found " .. numberoffiles .. " files in directory.")
 
     -- Loop through the directory
     for i = 0, numberoffiles - 1 do
@@ -46,60 +83,64 @@ if xmlfilelist then
         -- Check if it is a file and matches extension (case insensitive)
         if ext and string.lower(ext) == string.lower(file_extension) then
 
-            system:log("Found file: " .. file)
+            log("Found file: " .. file)
 
             -- 1. Create a new Tray for this file
             -- Syntax: fabbproject:addtray(name, size_x, size_y, size_z)
             -- We give the tray the same name as the file
             -- Adjust the machine size (250, 250, 300) to match your machine
-            fabbproject:addtray(file, 250, 250, 300)
+            if fabbproject then
+                fabbproject:addtray(file, 250, 250, 300)
 
-            -- Get the newly created tray (assumed to be the last one)
-            local trayIndex = fabbproject.traycount - 1
-            local newTray = fabbproject:gettray(trayIndex)
+                -- Get the newly created tray (assumed to be the last one)
+                local trayIndex = fabbproject.traycount - 1
+                local newTray = fabbproject:gettray(trayIndex)
 
-            if newTray then
-                local meshGroup = newTray.root
+                if newTray then
+                    local meshGroup = newTray.root
 
-                -- 2. Add No Build Zone
-                if zoneMeshTemplate then
-                    -- Duplicate the mesh for the new tray to avoid ownership issues
-                    local zoneMesh = zoneMeshTemplate:dupe()
-                    local zoneTrayMesh = meshGroup:addmesh(zoneMesh)
+                    -- 2. Add No Build Zone
+                    if zoneMeshTemplate then
+                        -- Duplicate the mesh for the new tray to avoid ownership issues
+                        local zoneMesh = zoneMeshTemplate:dupe()
+                        local zoneTrayMesh = meshGroup:addmesh(zoneMesh)
 
-                    if zoneTrayMesh then
-                        -- 3. Set properties to act as a "No Build Zone"
-                        -- "locked" tells the packer: Do not move this part.
-                        zoneTrayMesh:setpackingoption("restriction", "locked")
+                        if zoneTrayMesh then
+                            -- 3. Set properties to act as a "No Build Zone"
+                            -- "locked" tells the packer: Do not move this part.
+                            zoneTrayMesh:setpackingoption("restriction", "locked")
 
-                        -- Optional: Color it Red to indicate it is a danger/exclusion zone
-                        -- Using hex string "FF0000" for Red based on Example Code
-                        zoneTrayMesh.color = "FF0000"
+                            -- Optional: Color it Red to indicate it is a danger/exclusion zone
+                            -- Using hex string "FF0000" for Red based on Example Code
+                            zoneTrayMesh.color = "FF0000"
+                        end
                     end
-                end
 
-                -- 3. Load and Add Part
-                -- This imports the mesh.
-                local partMesh = system:loadstl(full_path)
+                    -- 3. Load and Add Part
+                    -- This imports the mesh.
+                    local partMesh = system:loadstl(full_path)
 
-                -- OPTIONAL: Validating the load
-                if partMesh then
-                    local partTrayMesh = meshGroup:addmesh(partMesh)
-                    if partTrayMesh then
-                        system:log("Successfully loaded and added: " .. file)
+                    -- OPTIONAL: Validating the load
+                    if partMesh then
+                        local partTrayMesh = meshGroup:addmesh(partMesh)
+                        if partTrayMesh then
+                            log("Successfully loaded and added: " .. file)
+                        else
+                            log("Loaded but failed to add to tray: " .. file)
+                        end
                     else
-                        system:log("Loaded but failed to add to tray: " .. file)
+                        log("Failed to load: " .. file)
                     end
                 else
-                    system:log("Failed to load: " .. file)
+                    log("Failed to retrieve new tray for: " .. file)
                 end
             else
-                system:log("Failed to retrieve new tray for: " .. file)
+                 log("Skipping tray creation for " .. file .. " because fabbproject is missing.")
             end
         end
     end
 else
-    system:log("Failed to list files in directory: " .. import_path)
+    log("Failed to list files in directory: " .. import_path)
 end
 
 system:messagebox("Batch Import Complete!")
