@@ -20,22 +20,35 @@ local function log(msg)
     end
 end
 
-log("--- Starting Batch Import V2 ---")
+log("--- Starting Batch Import V3 ---")
 
 -- Ensure no trailing slash
 if string.sub(import_path, -1) == "\\" then
     import_path = string.sub(import_path, 1, -2)
 end
 
--- Check for fabbproject (Required for creating trays)
-local project = _G.fabbproject
+-- Check for required globals
+-- In Desktop Automation, 'tray' is the current buildroom.
+local currentTray = _G.tray
+local trayHandler = _G.netfabbtrayhandler
 
-if not project then
-    log("Error: Global 'fabbproject' is missing. This script requires the project context to create new trays.")
-    -- Try to fallback to system:getfabbproject() if available, but usually _G.fabbproject is the way.
-    -- If we are in a context without a project, we can't fulfill the requirement of multiple trays properly.
+if not currentTray then
+    log("Error: Global 'tray' is missing. This script must be run from the Netfabb Desktop Automation menu.")
     return
 end
+
+if not trayHandler then
+    log("Error: Global 'netfabbtrayhandler' is missing. Cannot create new trays.")
+    return
+end
+
+-- Get machine dimensions from the current tray to apply to new trays
+local machine_x = currentTray.machinesize_x or 250
+local machine_y = currentTray.machinesize_y or 250
+local machine_z = currentTray.machinesize_z or 200
+
+log("Using machine dimensions: " .. machine_x .. "x" .. machine_y .. "x" .. machine_z)
+
 
 -- Load Files from Directory
 local xmlfilelist = system:getallfilesindirectory(import_path)
@@ -60,10 +73,9 @@ if xmlfilelist then
             local partMesh = system:loadstl(full_path)
 
             if partMesh then
-                -- Create a new tray for this mesh
-                project:addtray()
-                -- Retrieve the newly created tray (it's the last one)
-                local newTray = project:gettray(project.traycount - 1)
+                -- Create a new tray for this mesh using netfabbtrayhandler
+                -- addtray returns the new tray object directly
+                local newTray = trayHandler:addtray(file, machine_x, machine_y, machine_z)
 
                 if newTray then
                     -- Get the root mesh group
@@ -77,7 +89,7 @@ if xmlfilelist then
 
                         -- Center the mesh
                         -- We assume partTrayMesh has an 'outbox' property (newer API)
-                        -- or use calcoutbox() if needed. Using 'outbox' as per recent examples.
+                        -- or use calcoutbox() if needed.
                         local outbox = partTrayMesh.outbox
 
                         if outbox then
@@ -106,7 +118,7 @@ if xmlfilelist then
                         log("Loaded but failed to add to tray: " .. file)
                     end
                 else
-                    log("Failed to get the new tray for file: " .. file)
+                    log("Failed to create new tray for file: " .. file)
                 end
             else
                 log("Failed to load: " .. file)
