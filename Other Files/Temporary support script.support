@@ -1,0 +1,275 @@
+<root>
+	<!-- Netfabb support script 2026-01-06 15:33 -->
+	<!-- Version is 2025.1 Build #33 -->
+	<supportscript caption="test" readonly="0">
+		<supportaction enabled="1" id="13" supportaction_id="0">
+			<supportoption id="action_description" value="" visible="1"/>
+			<supportoption id="action_color" value="127969" visible="1"/>
+			<supportoption id="bar_area_root_count" value="0" visible="1"/>
+			<supportoption id="edge_max_curvature" value="60" visible="1"/>
+			<supportoption id="edge_max_edge_angle" value="40" visible="1"/>
+			<supportoption id="edge_anchor_curvature" value="20" visible="1"/>
+			<supportoption id="edge_lower_face_angle" value="30" visible="1"/>
+			<supportoption id="edge_anchor_distance" value="10" visible="1"/>
+			<supportoption id="edge_contur_offset" value="1" visible="1"/>
+			<supportoption id="edge_start_end_offset" value="0.200000002980232" visible="1"/>
+			<supportoption id="bar_on_edge_z_range_group" visible="1"/>
+			<supportoption id="bar_on_edge_min_z" value="0" visible="1"/>
+			<supportoption id="bar_on_edge_max_z" value="100000" visible="1"/>
+			<supportoption id="x_branch_group" visible="1"/>
+			<supportoption id="x_branch_bar_count" value="5" visible="1"/>
+			<supportoption id="x_branch_cluster_taper" value="0" visible="1"/>
+			<supportoption id="x_branch_pad" value="0" visible="1"/>
+			<supportoption id="x_branch_brace" visible="1"/>
+			<supportoption id="x_branch_strategy" value="0" visible="1"/>
+			<supportoption id="x_branch_max_on_bar" value="4" visible="1"/>
+			<supportoption id="x_branch_angle" value="60" visible="1"/>
+			<supportoption id="x_branch_junction_tangency" value="0" visible="1"/>
+			<supportoption id="bar_contur_group" visible="1"/>
+			<supportoption id="bar_contur" value="1" visible="1"/>
+			<supportoption id="bar_polygon_corners" value="8" visible="1"/>
+			<supportoption id="bar_cross_angle_top" value="0" visible="1"/>
+			<supportoption id="bar_solidcross_filling" value="0.5" visible="1"/>
+			<supportoption id="bar_hatch_angle" value="0" visible="1"/>
+			<supportoption id="bar_radial_type" value="0" visible="1"/>
+			<supportoption id="bar_radial_factor" value="100" visible="1"/>
+			<supportoption id="bar_distance_mesh" value="-0.200000002980232" visible="1"/>
+			<supportoption id="bar_part_width" value="1.5" visible="1"/>
+			<supportoption id="bar_part_width_bottom" value="-1" visible="1"/>
+			<supportoption id="bar_part_width_free_anchor" value="-1" visible="1"/>
+			<supportoption id="bar_platform_width" value="2" visible="1"/>
+			<supportoption id="bar_breakpoint_group" visible="1"/>
+			<supportoption id="bar_breakpoint" value="1" visible="1"/>
+			<supportoption id="bar_breakpoint_width" value="1.5" visible="1"/>
+			<supportoption id="bar_breakpoint_width_end" value="1" visible="1"/>
+			<supportoption id="bar_breakpoint_height" value="0.300000011920929" visible="1"/>
+			<supportoption id="bar_breakpoint_distance" value="0.5" visible="1"/>
+			<supportoption id="bar_breakpoint_height_end" value="0.5" visible="1"/>
+			<supportoption id="bar_right_angle_group" visible="1"/>
+			<supportoption id="bar_right_angle" value="1" visible="1"/>
+			<supportoption id="bar_distance_right_angle" value="1" visible="1"/>
+			<supportoption id="bar_smooth_distance" value="1" visible="1"/>
+			<supportoption id="bar_junction_tangency" value="1" visible="1"/>
+			<supportoption id="bar_pad_group" visible="1"/>
+			<supportoption id="bar_pad" value="1" visible="1"/>
+			<supportoption id="bar_pad_width" value="3" visible="1"/>
+			<supportoption id="bar_pad_height" value="1.5" visible="1"/>
+			<supportoption id="bar_pad_slope" value="0" visible="1"/>
+			<supportoption id="bar_use_density" value="1" visible="1"/>
+			<supportoption id="factory_root_1" visible="1"/>
+			<supportoption id="bp_offset" value="5" visible="1"/>
+			<supportoption id="bp_height" value="5" visible="1"/>
+			<supportoption id="bp_tapering" value="0" visible="1"/>
+			<supportoption id="bp_pattern_group" visible="1"/>
+			<supportoption id="bp_pattern" value="0" visible="1"/>
+			<supportoption id="bp_pattern_size" value="5" visible="1"/>
+			<supportoption id="bp_pattern_wall" value="2" visible="1"/>
+			<supportoption id="bp_perimeter_thickness" value="2" visible="1"/>
+			<supportoption id="bp_corner_count" value="10" visible="1"/>
+			<supportoption id="bp_min_hatch_length" value="0.1" visible="1"/>
+			<supportoption id="bp_min_pattern_area" value="5" visible="1"/>
+			<supportoption id="factory_root_6" visible="1"/>
+		</supportaction>
+		<supportaction enabled="1" id="1" supportaction_id="1">
+			<supportoption id="action_description" value="" visible="1"/>
+			<supportoption id="action_color" value="1832229" visible="1"/>
+			<supportoption id="edge_min_lenght" value="4.5" visible="1"/>
+			<supportoption id="edge_max_lenght" value="100000" visible="1"/>
+			<supportoption id="edge_max_curvature" value="45" visible="1"/>
+			<supportoption id="edge_max_edge_angle" value="40" visible="1"/>
+			<supportoption id="edge_anchor_curvature" value="30" visible="1"/>
+			<supportoption id="edge_lower_face_angle" value="30" visible="1"/>
+			<supportoption id="edge_anchor_distance" value="2.5" visible="1"/>
+			<supportoption id="edge_contur_offset" value="0.300000011920929" visible="1"/>
+			<supportoption id="edge_start_end_offset" value="0.2" visible="1"/>
+			<supportoption id="edge_multible_lines" value="0" visible="1"/>
+			<supportoption id="edge_multible_distance" value="0.2" visible="1"/>
+			<supportoption id="polyline_type" value="2" visible="1"/>
+			<supportoption id="polyline_distance_top" value="-0.200000002980232" visible="1"/>
+			<supportoption id="polyline_intermediate_length" value="1" visible="1"/>
+			<supportoption id="polyline_spline_smoothing" value="1" visible="1"/>
+			<supportoption id="polyline_stand_angle" value="0" visible="1"/>
+			<supportoption id="polyline_wall_width" value="1" visible="1"/>
+			<supportoption id="polyline_wall_round" value="1" visible="1"/>
+			<supportoption id="polyline_structure_group" visible="1"/>
+			<supportoption id="polyline_structure_type" value="0" visible="1"/>
+			<supportoption id="polyline_structure_width" value="1" visible="1"/>
+			<supportoption id="polyline_structure_height" value="1.5" visible="1"/>
+			<supportoption id="polyline_structure_interval_width" value="0.400000005960464" visible="1"/>
+			<supportoption id="polyline_structure_interval_height" value="0.400000005960464" visible="1"/>
+			<supportoption id="polyline_structure_thickening" value="0.600000023841858" visible="1"/>
+			<supportoption id="polyline_structure_thickening_top" value="-1" visible="1"/>
+			<supportoption id="polyline_structure_thickening_bottom" value="-1" visible="1"/>
+			<supportoption id="polyline_structure_stitching" value="0" visible="1"/>
+			<supportoption id="polyline_structure_max_height" value="0" visible="1"/>
+			<supportoption id="polyline_solid_for_height" value="0" visible="1"/>
+			<supportoption id="polyline_structure_border_width" value="-1" visible="1"/>
+			<supportoption id="polyline_fin" visible="1"/>
+			<supportoption id="polyline_fin_use" value="1" visible="1"/>
+			<supportoption id="polyline_fin_width" value="0.6" visible="1"/>
+			<supportoption id="polyline_fin_dist_support" value="0" visible="1"/>
+			<supportoption id="polyline_fin_dist_top" value="1" visible="1"/>
+			<supportoption id="polyline_fin_dist_down" value="1" visible="1"/>
+			<supportoption id="polyline_keep_wall_distance" value="1" visible="1"/>
+			<supportoption id="polyline_use_densitymap" value="1" visible="1"/>
+			<supportoption id="polyline_structure_minimal_length" value="0" visible="1"/>
+			<supportoption id="polyline_structure_fill_bottom" value="1" visible="1"/>
+			<supportoption id="polyline_fragment_group" visible="1"/>
+			<supportoption id="polyline_structure_fragment" value="1" visible="1"/>
+			<supportoption id="polyline_structure_fragment_length" value="20" visible="1"/>
+			<supportoption id="polyline_structure_fragment_gap" value="0.400000005960465" visible="1"/>
+			<supportoption id="polyline_connection_group" visible="1"/>
+			<supportoption id="polyline_structure_connect_group" visible="1"/>
+			<supportoption id="polyline_structure_connect_type" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_width" value="0.400000005960464" visible="1"/>
+			<supportoption id="polyline_structure_connect_gab" value="0" visible="1"/>
+			<supportoption id="polyline_structure_connect_height" value="2" visible="1"/>
+			<supportoption id="polyline_structure_connect_strip" value="0.600000023841858" visible="1"/>
+			<supportoption id="polyline_structure_connect_count" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_group" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_type" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_width" value="0.400000005960464" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_gab" value="0" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_height" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_strip" value="0.600000023841858" visible="1"/>
+			<supportoption id="polyline_structure_connect_down_count" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_group" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_type" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_width" value="0.400000005960464" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_gab" value="0" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_height" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_strip" value="0.600000023841858" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_count" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_hatches" value="1" visible="1"/>
+			<supportoption id="polyline_structure_connect_plat_distance" value="0.100000001490116" visible="1"/>
+			<supportoption id="polyline_bottom_triangle" value="1" visible="1"/>
+			<supportoption id="polyline_bottom_distance" value="5" visible="1"/>
+			<supportoption id="polyline_bottom_edge_length" value="3" visible="1"/>
+			<supportoption id="polyline_angled_support" value="1" visible="1"/>
+			<supportoption id="factory_root_2" visible="1"/>
+		</supportaction>
+		<supportaction enabled="1" id="0" supportaction_id="2">
+			<supportoption id="action_description" value="" visible="1"/>
+			<supportoption id="action_color" value="15911763" visible="1"/>
+			<supportoption id="cluster_group" visible="1"/>
+			<supportoption id="cluster_min_area" value="0.100000001490116" visible="1"/>
+			<supportoption id="cluster_max_area" value="1000000" visible="1"/>
+			<supportoption id="cluster_critical_angle" value="30.0000008348261" visible="1"/>
+			<supportoption id="cluster_noncritical_angle" value="30.0000008348261" visible="1"/>
+			<supportoption id="cluster_type" value="0" visible="1"/>
+			<supportoption id="cluster_duplicate" value="0" visible="1"/>
+			<supportoption id="cluster_inner_outer" value="0" visible="1"/>
+			<supportoption id="cluster_respect_next" value="1" visible="1"/>
+			<supportoption id="cluster_next_distance" value="1" visible="1"/>
+			<supportoption id="cluster_min_to_part" value="0" visible="1"/>
+			<supportoption id="cluster_max_to_part" value="100" visible="1"/>
+			<supportoption id="cluster_min_z_value" value="0" visible="1"/>
+			<supportoption id="cluster_max_z_value" value="10000000" visible="1"/>
+			<supportoption id="cluster_facegroup" visible="1"/>
+			<supportoption id="cluster_facegroup_aware" value="1" visible="1"/>
+			<supportoption id="cluster_facegroup_restrict" value="" visible="1"/>
+			<supportoption id="cluster_facegroup_avoid" value="" visible="1"/>
+			<supportoption id="cluster_min_wall_distance" value="0" visible="1"/>
+			<supportoption id="area_anchor_accuracy" value="0.0500000007450581" visible="1"/>
+			<supportoption id="area_contur_offset_concave" value="0.800000011920929" visible="1"/>
+			<supportoption id="area_contur_offset_convex" value="1" visible="1"/>
+			<supportoption id="developer_smooth_iterations" value="0" visible="1"/>
+			<supportoption id="volume_type" value="1" visible="1"/>
+			<supportoption id="volume_distance_top" value="-0.200000002980232" visible="1"/>
+			<supportoption id="volume_distance_bottom" value="0" visible="1"/>
+			<supportoption id="volume_stand_angle" value="0" visible="1"/>
+			<supportoption id="volume_stand_angle_mode" value="0" visible="1"/>
+			<supportoption id="volume_fillet_intensity" value="50" visible="1"/>
+			<supportoption id="volume_fillet_accuracy" value="2" visible="1"/>
+			<supportoption id="volume_structure_group" visible="1"/>
+			<supportoption id="volume_structure_type" value="0" visible="1"/>
+			<supportoption id="volume_structure_width" value="2" visible="1"/>
+			<supportoption id="volume_structure_height" value="3" visible="1"/>
+			<supportoption id="volume_structure_interval_width" value="0.800000011920929" visible="1"/>
+			<supportoption id="volume_structure_interval_height" value="0.800000011920929" visible="1"/>
+			<supportoption id="volume_structure_thickening" value="0.0719999969005585" visible="1"/>
+			<supportoption id="volume_structure_thickening_top" value="-1" visible="1"/>
+			<supportoption id="volume_structure_thickening_bottom" value="-1" visible="1"/>
+			<supportoption id="volume_structure_stitching" value="0" visible="1"/>
+			<supportoption id="volume_structure_max_height" value="0" visible="1"/>
+			<supportoption id="volume_solid_for_height" value="0" visible="1"/>
+			<supportoption id="volume_structure_border_width" value="-1" visible="1"/>
+			<supportoption id="volume_fin" visible="1"/>
+			<supportoption id="volume_fin_use" value="1" visible="1"/>
+			<supportoption id="volume_fin_width" value="0.6" visible="1"/>
+			<supportoption id="volume_fin_dist_support" value="0" visible="1"/>
+			<supportoption id="volume_fin_dist_top" value="1" visible="1"/>
+			<supportoption id="volume_fin_dist_down" value="1" visible="1"/>
+			<supportoption id="volume_keep_wall_distance" value="1" visible="1"/>
+			<supportoption id="volume_use_densitymap" value="1" visible="1"/>
+			<supportoption id="volume_structure_minimal_length" value="0" visible="1"/>
+			<supportoption id="volume_structure_fill_bottom" value="1" visible="1"/>
+			<supportoption id="volume_raster_group" visible="1"/>
+			<supportoption id="volume_structure_rotation" value="0.785398185253143" visible="1"/>
+			<supportoption id="volume_hatch_distance" value="2.5" visible="1"/>
+			<supportoption id="volume_fill_strategy" value="0" visible="1"/>
+			<supportoption id="volume_raster_distance" value="0" visible="1"/>
+			<supportoption id="volume_contour_group" visible="1"/>
+			<supportoption id="volume_contour_count" value="1" visible="1"/>
+			<supportoption id="volume_contour_distance" value="1" visible="1"/>
+			<supportoption id="volume_structure_accuracy" value="1" visible="1"/>
+			<supportoption id="volume_platform_group" visible="1"/>
+			<supportoption id="volume_structure_connect_group" visible="1"/>
+			<supportoption id="volume_structure_connect_type" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_width" value="0.200000002980232" visible="1"/>
+			<supportoption id="volume_structure_connect_gab" value="0" visible="1"/>
+			<supportoption id="volume_structure_connect_height" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_strip" value="0.5" visible="1"/>
+			<supportoption id="volume_structure_connect_count" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_down_group" visible="1"/>
+			<supportoption id="volume_structure_connect_down_type" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_down_width" value="0.200000002980232" visible="1"/>
+			<supportoption id="volume_structure_connect_down_gab" value="0" visible="1"/>
+			<supportoption id="volume_structure_connect_down_height" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_down_strip" value="0.5" visible="1"/>
+			<supportoption id="volume_structure_connect_down_count" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_group" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_type" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_width" value="0.200000002980232" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_gab" value="0" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_height" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_strip" value="0.5" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_count" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_hatches" value="1" visible="1"/>
+			<supportoption id="volume_structure_connect_plat_distance" value="0.100000001490116" visible="1"/>
+			<supportoption id="volume_connection_y_group" visible="1"/>
+			<supportoption id="volume_connection_y_type" value="0" visible="1"/>
+			<supportoption id="volume_connection_y_width" value="0.2" visible="1"/>
+			<supportoption id="volume_connection_y_gab" value="0" visible="1"/>
+			<supportoption id="volume_connection_y_height" value="1" visible="1"/>
+			<supportoption id="volume_connection_y_strip" value="0.5" visible="1"/>
+			<supportoption id="volume_connection_y_count" value="2" visible="1"/>
+			<supportoption id="volume_connection_use_y" value="1" visible="1"/>
+			<supportoption id="volume_pin_group" visible="1"/>
+			<supportoption id="volume_plate" value="1" visible="1"/>
+			<supportoption id="volume_plate_accuracy" value="2" visible="1"/>
+			<supportoption id="volume_top_layer_height" value="0.5" visible="1"/>
+			<supportoption id="volume_plate_structure_distance" value="0" visible="1"/>
+			<supportoption id="volume_pin_type" value="0" visible="1"/>
+			<supportoption id="volume_pin_width" value="0.400000005960465" visible="1"/>
+			<supportoption id="volume_pin_density" value="2" visible="1"/>
+			<supportoption id="volume_fragment_group" visible="1"/>
+			<supportoption id="volume_fragment_raster" visible="1"/>
+			<supportoption id="volume_fragment_contour" visible="1"/>
+			<supportoption id="volume_fragment" value="0" visible="1"/>
+			<supportoption id="volume_fragment_x" value="5" visible="1"/>
+			<supportoption id="volume_fragment_y" value="5" visible="1"/>
+			<supportoption id="volume_fragment_shrinking_x" value="100" visible="1"/>
+			<supportoption id="volume_fragment_shrinking_y" value="100" visible="1"/>
+			<supportoption id="volume_fragment_gap" value="1" visible="1"/>
+			<supportoption id="volume_fragment_offset_x" value="0" visible="1"/>
+			<supportoption id="volume_fragment_offset_y" value="0" visible="1"/>
+			<supportoption id="volume_structure_fragment" value="0" visible="1"/>
+			<supportoption id="volume_structure_fragment_length" value="20" visible="1"/>
+			<supportoption id="volume_structure_fragment_gap" value="0.400000005960465" visible="1"/>
+			<supportoption id="volume_fragment_type" value="0" visible="1"/>
+			<supportoption id="volume_projection" value="0" visible="1"/>
+			<supportoption id="factory_root_4" visible="1"/>
+		</supportaction>
+	</supportscript>
+</root>
