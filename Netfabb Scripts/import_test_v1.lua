@@ -47,10 +47,16 @@ end
 local fabbproject = fabbproject
 
 if not fabbproject then
-    if system.getfabbproject then
-        fabbproject = system:getfabbproject()
-    elseif system.getactiveproject then
-        fabbproject = system:getactiveproject()
+    -- Try system:getfabbproject() using pcall
+    local ok, proj = pcall(function() return system:getfabbproject() end)
+    if ok and proj then
+        fabbproject = proj
+    else
+        -- Try system:getactiveproject() using pcall
+        local ok2, proj2 = pcall(function() return system:getactiveproject() end)
+        if ok2 and proj2 then
+            fabbproject = proj2
+        end
     end
 end
 
