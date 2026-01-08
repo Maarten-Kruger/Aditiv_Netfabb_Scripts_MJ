@@ -1,28 +1,51 @@
 -- duplicate_and_arrange_MJ.lua
--- Duplicates a part in every tray to fill the tray and arranges them (True Shape).
+-- Duplicates a part in every tray to fill the tray.
+-- Modified by Jules
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
 local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\duplicate_log.txt"
-local path_to_3mf = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Example Files" -- Directory containing .3mf files
-local f_log = io.open(log_file_path, "w")
 
--- Helper for logging
+-- Setup Logging using system:logtofile
+if system and system.logtofile then
+    local ok, err = pcall(function() system:logtofile(log_file_path) end)
+    if not ok then
+        if system.log then system:log("Failed to set log file: " .. tostring(err)) end
+    end
+end
+
 local function log(msg)
     if system and system.log then
         system:log(msg)
     end
+    -- Fallback print
     print(msg)
-    if f_log then
-        f_log:write(tostring(msg) .. "\n")
-        f_log:flush()
-    end
 end
 
+log("--- Script Started ---")
 log("Log file location: " .. log_file_path)
 
+-- 1. Prompt for Directory containing .3mf files
+local path_to_3mf = ""
+local ok_browse, path = pcall(function() return system:browsedirectory("Select Directory containing .3mf files") end)
+
+if ok_browse and path and path ~= "" then
+    path_to_3mf = path
+    -- Sanitize path (remove quotes)
+    path_to_3mf = string.gsub(path_to_3mf, '"', '')
+    -- Remove trailing slash if present
+    if string.sub(path_to_3mf, -1) == "\\" then
+        path_to_3mf = string.sub(path_to_3mf, 1, -2)
+    end
+    log("Selected 3MF Directory: " .. path_to_3mf)
+else
+    log("No directory selected. Exiting.")
+    return
+end
+
+
 -- Function to process a single tray
-local function process_tray(current_tray, tray_name, master_template_mesh, master_template_matrix, master_template_name)
+local function process_tray(current_tray, tray_name)
     log("--- Processing " .. tray_name .. " ---")
 
     if not current_tray or not current_tray.root then
@@ -32,26 +55,14 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
 
     local root = current_tray.root
 
-    -- 1. Find a template part (first mesh found)
+    -- 1. Find a template part (must exist in tray)
     local template_part = nil
-    local mesh_count = root.meshcount
-
-    if mesh_count > 0 then
+    if root.meshcount > 0 then
         template_part = root:getmesh(0)
-    elseif master_template_mesh then
-        -- Use Master Template if tray is empty
-        log("Tray is empty. Using Master Template.")
-        local new_luamesh = master_template_mesh:dupe()
-        -- Apply original matrix to the geometry (baking it)
-        if master_template_matrix then
-            new_luamesh:applymatrix(master_template_matrix)
-        end
-        template_part = root:addmesh(new_luamesh)
-        template_part.name = master_template_name or "Template Part"
     end
 
     if not template_part then
-        log("No parts found in " .. tray_name .. " and no Master Template available. Skipping.")
+        log("No parts found in " .. tray_name .. ". Skipping.")
         return
     end
 
@@ -81,15 +92,6 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
             log("Error: Could not retrieve bounding box.")
         end
     end
-
-    -- Alternative: mesh:shadowarea() (Commented out)
-    --[[
-    local success_shadow, shadow_area = pcall(function() return luamesh:shadowarea() end)
-    if success_shadow and shadow_area and shadow_area > 0 then
-        part_area = shadow_area
-        log("Part Area (from shadowarea): " .. part_area)
-    end
-    --]]
 
     if part_area <= 0 then
         log("Error: Could not calculate valid part area. Skipping tray.")
@@ -125,73 +127,69 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
     if duplicates_needed > 0 then
         log("Duplicating part via 3MF import...")
 
-        -- Determine the base name (remove suffixes like " (1)", etc.)
+        -- Determine the base name
         local base_name = template_part.name
-        base_name = string.gsub(base_name, "%s*%(%d+%)", "") -- Remove " (1)"
-        base_name = string.gsub(base_name, "_copy", "")      -- Remove "_copy"
-
-        -- Remove file extension (e.g. .stl) if present
+        -- Remove common copy suffixes " (1)", " (2)", etc.
+        base_name = string.gsub(base_name, "%s*%(%d+%)", "")
+        -- Remove "_copy"
+        base_name = string.gsub(base_name, "_copy", "")
+        -- Remove file extension (e.g. .stl) if present at end
         base_name = string.gsub(base_name, "%.%w+$", "")
+        -- Trim trailing whitespace
+        base_name = string.gsub(base_name, "%s+$", "")
 
         local part_3mf_path = path_to_3mf .. "\\" .. base_name .. ".3mf"
-        log("Looking for 3MF file: " .. part_3mf_path)
+        log("Constructed 3MF Path: " .. part_3mf_path)
 
-        -- Check existence (basic check)
-        -- system:load3mf returns nil if failed? Or we can check file existence if available.
-        -- Assuming load3mf handles it or returns nil.
+        -- Try to import once to verify existence
+        local verify_mesh = nil
+        local success_verify, res_verify = pcall(function() return system:load3mf(part_3mf_path) end)
 
-        for i = 1, duplicates_needed do
+        if success_verify and res_verify then
+            verify_mesh = res_verify
+        else
+            log("Error: Could not load 3MF file at: " .. part_3mf_path)
+            log("Details: " .. tostring(res_verify))
+            return -- Cannot proceed with duplication for this part
+        end
+
+        -- If verification passed, we can't necessarily re-use 'verify_mesh' multiple times if adding it consumes it or if we need distinct objects.
+        -- Usually system:load3mf returns a new LuaMesh each time.
+        -- Let's use the first one we loaded.
+        if verify_mesh then
+             local new_traymesh = root:addmesh(verify_mesh)
+             new_traymesh.name = base_name .. " (1)"
+             log("Imported copy 1")
+        end
+
+        -- Loop for the rest
+        for i = 2, duplicates_needed do
             local imported_mesh = nil
             local success, res = pcall(function() return system:load3mf(part_3mf_path) end)
 
             if success and res then
                 imported_mesh = res
-            else
-                log("Error loading 3MF: " .. tostring(res))
-            end
-
-            if imported_mesh then
                 local new_traymesh = root:addmesh(imported_mesh)
                 new_traymesh.name = base_name .. " (" .. i .. ")"
-                log("Imported copy " .. i)
+                -- log("Imported copy " .. i) -- Reduce spam if needed, or keep for debug
             else
-                log("Failed to import 3MF for duplication.")
-                break -- Stop trying if file not found or load failed
+                log("Failed to import copy " .. i .. ": " .. tostring(res))
             end
         end
     else
         log("No duplicates needed (Tray full or part too big).")
     end
-
 end
 
 -- Main Execution Logic
-log("--- Script Started ---")
 
 if _G.netfabbtrayhandler then
     log("Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
 
-    -- Find Master Template (from first non-empty tray)
-    local master_template_mesh = nil
-    local master_template_matrix = nil
-    local master_template_name = nil
-
-    for i = 0, netfabbtrayhandler.traycount - 1 do
-        local t = netfabbtrayhandler:gettray(i)
-        if t and t.root and t.root.meshcount > 0 then
-            local first_mesh = t.root:getmesh(0)
-            master_template_mesh = first_mesh.mesh
-            master_template_matrix = first_mesh.matrix
-            master_template_name = first_mesh.name
-            log("Found Master Template in Tray " .. (i + 1) .. ": " .. tostring(master_template_name))
-            break
-        end
-    end
-
     for i = 0, netfabbtrayhandler.traycount - 1 do
         local t = netfabbtrayhandler:gettray(i)
         if t then
-            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix, master_template_name)
+            process_tray(t, "Tray " .. (i + 1))
         else
             log("Error: Failed to retrieve Tray " .. (i + 1))
         end
@@ -203,10 +201,6 @@ end
 -- Update GUI
 if application and application.triggerdesktopevent then
     application:triggerdesktopevent('updateparts')
-end
-
-if f_log then
-    f_log:close()
 end
 
 log("--- Script Complete ---")
