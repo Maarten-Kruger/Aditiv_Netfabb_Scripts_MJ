@@ -1,8 +1,24 @@
 -- duplicate_and_arrange_MJ.lua
--- Duplicates a part in every tray to fill the tray and arranges them.
+-- Duplicates a part in every tray to fill the tray and arranges them (True Shape).
 
 local tray_percentage = 0.8 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = false   -- Set to true if the build platform is cylindrical
+local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\duplicate_arrange_log.txt"
+
+-- Setup Logging
+local file_logger = nil
+if system and system.getdesktoppath then
+    local status, path = pcall(function() return system:getdesktoppath() end)
+    if status and path then
+        log_file_path = path .. "/duplicate_arrange_log.txt"
+    end
+end
+
+-- Open log file
+local f_log, err = io.open(log_file_path, "w")
+if not f_log then
+    if system and system.log then system:log("Failed to open log file: " .. tostring(err)) end
+end
 
 -- Helper for logging
 local function log(msg)
@@ -10,7 +26,13 @@ local function log(msg)
         system:log(msg)
     end
     print(msg)
+    if f_log then
+        f_log:write(tostring(msg) .. "\n")
+        f_log:flush()
+    end
 end
+
+log("Log file location: " .. log_file_path)
 
 -- Function to process a single tray
 local function process_tray(current_tray, tray_name)
@@ -115,8 +137,7 @@ local function process_tray(current_tray, tray_name)
             -- Create a duplicate of the geometry
             local new_luamesh = luamesh:dupe()
 
-            -- FIX: Apply the matrix to the geometry itself before adding to tray.
-            -- This bakes the transformation into the vertices.
+            -- Apply the matrix to the geometry itself before adding to tray.
             new_luamesh:applymatrix(original_matrix)
 
             local new_traymesh = root:addmesh(new_luamesh)
@@ -128,14 +149,14 @@ local function process_tray(current_tray, tray_name)
         log("No duplicates needed (Tray full or part too big).")
     end
 
-    -- 6. Run 2D Packing
-    log("Starting 2D Packing for " .. tray_name .. "...")
+    -- 6. Run True Shape Packing
+    log("Starting True Shape Packing for " .. tray_name .. "...")
 
-    -- Create Packer
-    local packer_id = current_tray.packingid_2d
+    local packer_id = current_tray.packingid_trueshape
     if not packer_id then
-        log("Warning: packingid_2d not found. Falling back to Monte Carlo.")
-        packer_id = current_tray.packingid_montecarlo
+        log("Warning: packingid_trueshape not found. Trying scanline or montecarlo.")
+        packer_id = current_tray.packingid_scanline -- Possible alias?
+        if not packer_id then packer_id = current_tray.packingid_montecarlo end
     end
 
     local packer = nil
@@ -148,17 +169,37 @@ local function process_tray(current_tray, tray_name)
         return
     end
 
-    -- Configure Packer
-    if packer_id == current_tray.packingid_2d then
-        packer.rastersize = 1.0
-        packer.anglecount = 4
-        packer.placeoutside = true
-        packer.borderspacingxy = 2.0
-        packer.packonlyselected = false
-    elseif packer_id == current_tray.packingid_montecarlo then
+    -- Configure True Shape Packer
+    -- Settings derived from Script48_TrueShapePack.lua
+
+    -- Check if it's the True Shape packer (properties differ from monte carlo)
+    if packer_id == current_tray.packingid_trueshape then
+        packer.packing_2d            = true   -- Force 2D packing
+        packer.packing_use_shadow_2d = false  -- Set to true if shadow packing desired
+        packer.voxel_size            = 1.0    -- Accuracy (smaller is slower but better)
+        packer.minimaldistance       = 2.0
+        packer.borderspacingxy       = 2.0
+        packer.borderspacingz        = 0.0
+
+        -- Rotation settings
+        packer.rotation_use_compound = false
+        packer.rotation_use_list     = false
+        packer.rotation_z            = 90.0   -- Allow 90 degree rotations
+
+        -- Advanced settings
+        packer.avoid_interlocking    = true
+        packer.part_placement        = packer.place_alongaxis -- Default strategy
+        packer:setdirectionaxis(packer.axis_positive_x, packer.axis_positive_y) -- Fill from X, Y
+    else
+        -- Fallback configuration for Monte Carlo or others
         packer.packing_quality = -1
         packer.start_from_current_positions = false
         packer.minimaldistance = 2.0
+        if packer_id == current_tray.packingid_2d then
+            packer.rastersize = 1.0
+            packer.anglecount = 4
+            packer.placeoutside = true
+        end
     end
 
     -- Set Restrictions: Lock everything EXCEPT our parts
@@ -191,14 +232,23 @@ end
 
 -- Main Execution Logic
 log("--- Script Started ---")
+log("Checking for 'fabbproject'...")
 
 if fabbproject then
-    log("Iterating through " .. fabbproject.traycount .. " trays in project.")
+    log("'fabbproject' found. Tray Count: " .. fabbproject.traycount)
+    if fabbproject.traycount == 0 then
+        log("Warning: Project has no trays.")
+    end
     for i = 0, fabbproject.traycount - 1 do
         local t = fabbproject:gettray(i)
-        process_tray(t, "Tray " .. (i + 1))
+        if t then
+            process_tray(t, "Tray " .. (i + 1))
+        else
+            log("Error: Failed to retrieve Tray " .. (i + 1))
+        end
     end
 else
+    log("'fabbproject' is nil. Checking global 'tray'...")
     if tray then
         process_tray(tray, "Current Tray")
     else
@@ -209,6 +259,10 @@ end
 -- Update GUI
 if application and application.triggerdesktopevent then
     application:triggerdesktopevent('updateparts')
+end
+
+if f_log then
+    f_log:close()
 end
 
 log("--- Script Complete ---")
