@@ -25,24 +25,9 @@ end
 log("--- Script Started ---")
 log("Log file location: " .. log_file_path)
 
--- 1. Prompt for Directory containing .3mf files
-local path_to_3mf = ""
-local ok_browse, path = pcall(function() return system:browsedirectory("Select Directory containing .3mf files") end)
-
-if ok_browse and path and path ~= "" then
-    path_to_3mf = path
-    -- Sanitize path (remove quotes)
-    path_to_3mf = string.gsub(path_to_3mf, '"', '')
-    -- Remove trailing slash if present
-    if string.sub(path_to_3mf, -1) == "\\" then
-        path_to_3mf = string.sub(path_to_3mf, 1, -2)
-    end
-    log("Selected 3MF Directory: " .. path_to_3mf)
-else
-    log("No directory selected. Exiting.")
-    return
-end
-
+-- 1. Set Directory containing .3mf files
+local path_to_3mf = "C:\\Users\\Maarten\\OneDrive\\Desktop"
+log("3MF Directory: " .. path_to_3mf)
 
 -- Function to process a single tray
 local function process_tray(current_tray, tray_name)
