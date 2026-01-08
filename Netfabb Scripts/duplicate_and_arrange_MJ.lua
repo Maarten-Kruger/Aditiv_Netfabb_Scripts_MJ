@@ -4,6 +4,7 @@
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
 local log_file_path = "C:\\Program Files\\Autodesk\\Netfabb 2026\\Examples"
+local path_to_3mf = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Example Files" -- Directory containing .3mf files
 
 
 -- Helper for logging
@@ -120,26 +121,40 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
     log("Max Parts: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
-    -- 5. Duplicate the part
-    local parts_to_arrange = {}
-    table.insert(parts_to_arrange, template_part)
-
+    -- 5. Duplicate the part (using 3MF import)
     if duplicates_needed > 0 then
-        log("Duplicating part...")
+        log("Duplicating part via 3MF import...")
 
-        local original_matrix = template_part.matrix
+        -- Determine the base name (remove suffixes like " (1)", etc.)
+        local base_name = template_part.name
+        base_name = string.gsub(base_name, "%s*%(%d+%)", "") -- Remove " (1)"
+        base_name = string.gsub(base_name, "_copy", "")      -- Remove "_copy"
+
+        local part_3mf_path = path_to_3mf .. "\\" .. base_name .. ".3mf"
+        log("Looking for 3MF file: " .. part_3mf_path)
+
+        -- Check existence (basic check)
+        -- system:load3mf returns nil if failed? Or we can check file existence if available.
+        -- Assuming load3mf handles it or returns nil.
 
         for i = 1, duplicates_needed do
-            -- Create a duplicate of the geometry
-            local new_luamesh = luamesh:dupe()
+            local imported_mesh = nil
+            local success, res = pcall(function() return system:load3mf(part_3mf_path) end)
 
-            -- Apply the matrix to the geometry itself before adding to tray.
-            new_luamesh:applymatrix(original_matrix)
+            if success and res then
+                imported_mesh = res
+            else
+                log("Error loading 3MF: " .. tostring(res))
+            end
 
-            local new_traymesh = root:addmesh(new_luamesh)
-            new_traymesh.name = template_part.name .. " (" .. i .. ")"
-
-            table.insert(parts_to_arrange, new_traymesh)
+            if imported_mesh then
+                local new_traymesh = root:addmesh(imported_mesh)
+                new_traymesh.name = base_name .. " (" .. i .. ")"
+                log("Imported copy " .. i)
+            else
+                log("Failed to import 3MF for duplication.")
+                break -- Stop trying if file not found or load failed
+            end
         end
     else
         log("No duplicates needed (Tray full or part too big).")
@@ -149,39 +164,9 @@ end
 
 -- Main Execution Logic
 log("--- Script Started ---")
-log("Checking for 'fabbproject'...")
 
-if fabbproject then
-    log("'fabbproject' found. Tray Count: " .. fabbproject.traycount)
-    if fabbproject.traycount == 0 then
-        log("Warning: Project has no trays.")
-    end
-
-    -- Find Master Template (from first non-empty tray)
-    local master_template_mesh = nil
-    local master_template_matrix = nil
-
-    for i = 0, fabbproject.traycount - 1 do
-        local t = fabbproject:gettray(i)
-        if t and t.root and t.root.meshcount > 0 then
-            local first_mesh = t.root:getmesh(0)
-            master_template_mesh = first_mesh.mesh
-            master_template_matrix = first_mesh.matrix
-            log("Found Master Template in Tray " .. (i + 1))
-            break
-        end
-    end
-
-    for i = 0, fabbproject.traycount - 1 do
-        local t = fabbproject:gettray(i)
-        if t then
-            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix)
-        else
-            log("Error: Failed to retrieve Tray " .. (i + 1))
-        end
-    end
-elseif _G.netfabbtrayhandler then
-    log("'fabbproject' is nil. Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
+if _G.netfabbtrayhandler then
+    log("Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
 
     -- Find Master Template (from first non-empty tray)
     local master_template_mesh = nil
@@ -207,12 +192,7 @@ elseif _G.netfabbtrayhandler then
         end
     end
 else
-    log("'fabbproject' and 'netfabbtrayhandler' are nil. Checking global 'tray'...")
-    if tray then
-        process_tray(tray, "Current Tray")
-    else
-        log("Error: No global 'tray' or 'fabbproject' found.")
-    end
+    log("Error: 'netfabbtrayhandler' is not available.")
 end
 
 -- Update GUI
