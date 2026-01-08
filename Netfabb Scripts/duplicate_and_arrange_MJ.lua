@@ -180,8 +180,34 @@ if fabbproject then
             log("Error: Failed to retrieve Tray " .. (i + 1))
         end
     end
+elseif _G.netfabbtrayhandler then
+    log("'fabbproject' is nil. Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
+
+    -- Find Master Template (from first non-empty tray)
+    local master_template_mesh = nil
+    local master_template_matrix = nil
+
+    for i = 0, netfabbtrayhandler.traycount - 1 do
+        local t = netfabbtrayhandler:gettray(i)
+        if t and t.root and t.root.meshcount > 0 then
+            local first_mesh = t.root:getmesh(0)
+            master_template_mesh = first_mesh.mesh
+            master_template_matrix = first_mesh.matrix
+            log("Found Master Template in Tray " .. (i + 1))
+            break
+        end
+    end
+
+    for i = 0, netfabbtrayhandler.traycount - 1 do
+        local t = netfabbtrayhandler:gettray(i)
+        if t then
+            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix)
+        else
+            log("Error: Failed to retrieve Tray " .. (i + 1))
+        end
+    end
 else
-    log("'fabbproject' is nil. Checking global 'tray'...")
+    log("'fabbproject' and 'netfabbtrayhandler' are nil. Checking global 'tray'...")
     if tray then
         process_tray(tray, "Current Tray")
     else
