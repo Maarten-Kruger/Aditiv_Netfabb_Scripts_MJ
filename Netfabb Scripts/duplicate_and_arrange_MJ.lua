@@ -1,24 +1,10 @@
 -- duplicate_and_arrange_MJ.lua
 -- Duplicates a part in every tray to fill the tray and arranges them (True Shape).
 
-local tray_percentage = 0.8 -- Percentage of tray area to fill (0.0 to 1.0)
-local is_cylinder = false   -- Set to true if the build platform is cylindrical
-local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\duplicate_arrange_log.txt"
+local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
+local is_cylinder = true   -- Set to true if the build platform is cylindrical
+local log_file_path = "C:\\Program Files\\Autodesk\\Netfabb 2026\\Examples"
 
--- Setup Logging
-local file_logger = nil
-if system and system.getdesktoppath then
-    local status, path = pcall(function() return system:getdesktoppath() end)
-    if status and path then
-        log_file_path = path .. "/duplicate_arrange_log.txt"
-    end
-end
-
--- Open log file
-local f_log, err = io.open(log_file_path, "w")
-if not f_log then
-    if system and system.log then system:log("Failed to open log file: " .. tostring(err)) end
-end
 
 -- Helper for logging
 local function log(msg)
