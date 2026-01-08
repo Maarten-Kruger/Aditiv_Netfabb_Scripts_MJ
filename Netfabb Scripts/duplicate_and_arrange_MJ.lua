@@ -21,7 +21,7 @@ end
 log("Log file location: " .. log_file_path)
 
 -- Function to process a single tray
-local function process_tray(current_tray, tray_name)
+local function process_tray(current_tray, tray_name, master_template_mesh, master_template_matrix)
     log("--- Processing " .. tray_name .. " ---")
 
     if not current_tray or not current_tray.root then
@@ -37,10 +37,20 @@ local function process_tray(current_tray, tray_name)
 
     if mesh_count > 0 then
         template_part = root:getmesh(0)
+    elseif master_template_mesh then
+        -- Use Master Template if tray is empty
+        log("Tray is empty. Using Master Template.")
+        local new_luamesh = master_template_mesh:dupe()
+        -- Apply original matrix to the geometry (baking it)
+        if master_template_matrix then
+            new_luamesh:applymatrix(master_template_matrix)
+        end
+        template_part = root:addmesh(new_luamesh)
+        template_part.name = "Template Part"
     end
 
     if not template_part then
-        log("No parts found in " .. tray_name .. ". Skipping.")
+        log("No parts found in " .. tray_name .. " and no Master Template available. Skipping.")
         return
     end
 
@@ -135,85 +145,6 @@ local function process_tray(current_tray, tray_name)
         log("No duplicates needed (Tray full or part too big).")
     end
 
-    -- 6. Run True Shape Packing
-    log("Starting True Shape Packing for " .. tray_name .. "...")
-
-    local packer_id = current_tray.packingid_trueshape
-    if not packer_id then
-        log("Warning: packingid_trueshape not found. Trying scanline or montecarlo.")
-        packer_id = current_tray.packingid_scanline -- Possible alias?
-        if not packer_id then packer_id = current_tray.packingid_montecarlo end
-    end
-
-    local packer = nil
-    if current_tray.createpacker then
-        packer = current_tray:createpacker(packer_id)
-    end
-
-    if not packer then
-        log("Error: Could not create packer for " .. tray_name)
-        return
-    end
-
-    -- Configure True Shape Packer
-    -- Settings derived from Script48_TrueShapePack.lua
-
-    -- Check if it's the True Shape packer (properties differ from monte carlo)
-    if packer_id == current_tray.packingid_trueshape then
-        packer.packing_2d            = true   -- Force 2D packing
-        packer.packing_use_shadow_2d = false  -- Set to true if shadow packing desired
-        packer.voxel_size            = 1.0    -- Accuracy (smaller is slower but better)
-        packer.minimaldistance       = 2.0
-        packer.borderspacingxy       = 2.0
-        packer.borderspacingz        = 0.0
-
-        -- Rotation settings
-        packer.rotation_use_compound = false
-        packer.rotation_use_list     = false
-        packer.rotation_z            = 90.0   -- Allow 90 degree rotations
-
-        -- Advanced settings
-        packer.avoid_interlocking    = true
-        packer.part_placement        = packer.place_alongaxis -- Default strategy
-        packer:setdirectionaxis(packer.axis_positive_x, packer.axis_positive_y) -- Fill from X, Y
-    else
-        -- Fallback configuration for Monte Carlo or others
-        packer.packing_quality = -1
-        packer.start_from_current_positions = false
-        packer.minimaldistance = 2.0
-        if packer_id == current_tray.packingid_2d then
-            packer.rastersize = 1.0
-            packer.anglecount = 4
-            packer.placeoutside = true
-        end
-    end
-
-    -- Set Restrictions: Lock everything EXCEPT our parts
-    local current_mesh_count = root.meshcount
-    for i = 0, current_mesh_count - 1 do
-        local mesh = root:getmesh(i)
-
-        -- Check if mesh is in our list
-        local is_target = false
-        for _, p in ipairs(parts_to_arrange) do
-            if p == mesh then
-                is_target = true
-                break
-            end
-        end
-
-        if is_target then
-            mesh:setpackingoption('restriction', 'norestriction')
-            mesh.selected = true
-        else
-            mesh:setpackingoption('restriction', 'locked')
-            mesh.selected = false
-        end
-    end
-
-    -- Execute Pack
-    local errorcode = packer:pack()
-    log("Packing " .. tray_name .. " finished with result code: " .. tostring(errorcode))
 end
 
 -- Main Execution Logic
@@ -225,10 +156,26 @@ if fabbproject then
     if fabbproject.traycount == 0 then
         log("Warning: Project has no trays.")
     end
+
+    -- Find Master Template (from first non-empty tray)
+    local master_template_mesh = nil
+    local master_template_matrix = nil
+
+    for i = 0, fabbproject.traycount - 1 do
+        local t = fabbproject:gettray(i)
+        if t and t.root and t.root.meshcount > 0 then
+            local first_mesh = t.root:getmesh(0)
+            master_template_mesh = first_mesh.mesh
+            master_template_matrix = first_mesh.matrix
+            log("Found Master Template in Tray " .. (i + 1))
+            break
+        end
+    end
+
     for i = 0, fabbproject.traycount - 1 do
         local t = fabbproject:gettray(i)
         if t then
-            process_tray(t, "Tray " .. (i + 1))
+            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix)
         else
             log("Error: Failed to retrieve Tray " .. (i + 1))
         end
