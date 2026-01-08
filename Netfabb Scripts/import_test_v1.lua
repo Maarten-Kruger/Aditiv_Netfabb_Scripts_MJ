@@ -1,12 +1,9 @@
--- Batch Load Files to Separate Trays and Center
--- Author: Jules (Modified from original)
-
--- CONFIGURATION
-local import_path = "C:\\Users\\Maarten\\OneDrive\\Desktop"
-local file_extension = "stl"
-local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\import_test_log.txt"
+-- Batch Load Files to Separate Workspaces (Trays)
+-- Modified by Jules
 
 -- Setup Logging
+local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\import_test_log.txt"
+
 if system and system.logtofile then
     local ok, err = pcall(function() system:logtofile(log_file_path) end)
     if not ok then
@@ -20,37 +17,63 @@ local function log(msg)
     end
 end
 
-log("--- Starting Batch Import V3 ---")
+log("--- Starting Batch Import to Workspaces ---")
 
--- Ensure no trailing slash
+-- Check for required globals
+local trayHandler = _G.netfabbtrayhandler
+
+if not trayHandler then
+    log("Error: Global 'netfabbtrayhandler' is missing. Cannot create new workspaces.")
+    return
+end
+
+-- 1. Prompt for Directory
+local import_path = ""
+local ok_browse, path = pcall(function() return system:browsedirectory("Select Directory to Import Files From") end)
+
+if ok_browse and path and path ~= "" then
+    import_path = path
+else
+    -- Fallback to input dialog if browsedirectory is not available or cancelled
+    local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path:", "Import Path", "C:\\") end)
+    if ok_input and input_path and input_path ~= "" then
+        import_path = input_path
+    else
+        log("No directory selected. Exiting.")
+        return
+    end
+end
+
+-- Clean up path: Remove double quotes and trailing slashes
+import_path = string.gsub(import_path, '"', '')
 if string.sub(import_path, -1) == "\\" then
     import_path = string.sub(import_path, 1, -2)
 end
+log("Import path: " .. import_path)
 
--- Check for required globals
--- In Desktop Automation, 'tray' is the current buildroom.
-local currentTray = _G.tray
-local trayHandler = _G.netfabbtrayhandler
 
-if not currentTray then
-    log("Error: Global 'tray' is missing. This script must be run from the Netfabb Desktop Automation menu.")
+-- 2. Prompt for Machine Name
+local machine_name = "Formlabs Fuse 1" -- Default
+local ok_mach, input_mach = pcall(function() return system:inputdlg("Enter Machine Name for Workspace (e.g., 'Fuse 1'):", "Machine Selection", machine_name) end)
+if ok_mach and input_mach and input_mach ~= "" then
+    machine_name = input_mach
+end
+log("Selected machine name: " .. machine_name)
+
+-- 3. Get Workspace ID
+local workspaceID = trayHandler:getmachineidentifier(machine_name)
+
+if workspaceID == "" then
+    log("Workspace instance not found for '" .. machine_name .. "'.")
+    system:messagebox("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.")
     return
 end
 
-if not trayHandler then
-    log("Error: Global 'netfabbtrayhandler' is missing. Cannot create new trays.")
-    return
-end
-
--- Get machine dimensions from the current tray to apply to new trays
-local machine_x = currentTray.machinesize_x or 250
-local machine_y = currentTray.machinesize_y or 250
-local machine_z = currentTray.machinesize_z or 200
-
-log("Using machine dimensions: " .. machine_x .. "x" .. machine_y .. "x" .. machine_z)
+log("Found Workspace ID: " .. workspaceID)
 
 
--- Load Files from Directory
+-- 4. Batch Process Loop
+local file_extension = "stl" -- Could also be prompted or support multiple
 local xmlfilelist = system:getallfilesindirectory(import_path)
 
 if xmlfilelist then
@@ -73,52 +96,53 @@ if xmlfilelist then
             local partMesh = system:loadstl(full_path)
 
             if partMesh then
-                -- Create a new tray for this mesh using netfabbtrayhandler
-                -- addtray returns the new tray object directly
-                local newTray = trayHandler:addtray(file, machine_x, machine_y, machine_z)
+                -- Create a new workspace (tray)
+                local newTray = trayHandler:addworkspace(workspaceID)
 
                 if newTray then
-                    -- Get the root mesh group
-                    local meshGroup = newTray.root
-
                     -- Add mesh to the tray
-                    local partTrayMesh = meshGroup:addmesh(partMesh)
+                    local partTrayMesh = newTray.root:addmesh(partMesh)
 
                     if partTrayMesh then
                         partTrayMesh.name = file
 
-                        -- Center the mesh
-                        -- We assume partTrayMesh has an 'outbox' property (newer API)
-                        -- or use calcoutbox() if needed.
+                        -- Manual Centering Logic
+                        -- We use manual translation because the packer sometimes fails to place parts inside the build volume.
+
+                        -- Get machine dimensions from the new tray
+                        local mx = newTray.machinesize_x or 100
+                        local my = newTray.machinesize_y or 100
+                        local mz = newTray.machinesize_z or 100
+
+                        -- Get Part Bounding Box
                         local outbox = partTrayMesh.outbox
+                        if not outbox then
+                             pcall(function() partTrayMesh:calcoutbox() end)
+                             outbox = partTrayMesh.outbox
+                        end
 
                         if outbox then
                             local cx = (outbox.minx + outbox.maxx) / 2.0
                             local cy = (outbox.miny + outbox.maxy) / 2.0
                             local min_z = outbox.minz
 
-                            -- Translate: Center on XY, move Z min to 0
-                            partTrayMesh:translate(-cx, -cy, -min_z)
-                            log("Added and centered: " .. file)
+                            -- Calculate translation to center on XY and sit on Z=0
+                            local tx = (mx / 2.0) - cx
+                            local ty = (my / 2.0) - cy
+                            local tz = -min_z
+
+                            -- Apply translation
+                            partTrayMesh:translate(tx, ty, tz)
+                            log("Added and centered: " .. file .. " at (" .. tx .. ", " .. ty .. ", " .. tz .. ")")
                         else
-                             -- Fallback if outbox property is missing?
-                             -- Try calcoutbox method
-                             local ok_box, box = pcall(function() return partTrayMesh:calcoutbox() end)
-                             if ok_box and box then
-                                local cx = (box.minx + box.maxx) / 2.0
-                                local cy = (box.miny + box.maxy) / 2.0
-                                local min_z = box.minz
-                                partTrayMesh:translate(-cx, -cy, -min_z)
-                                log("Added and centered (via calcoutbox): " .. file)
-                             else
-                                log("Added " .. file .. " but could not center (no bounding box info).")
-                             end
+                            log("Added " .. file .. " but could not center (no bounding box info).")
                         end
+
                     else
                         log("Loaded but failed to add to tray: " .. file)
                     end
                 else
-                    log("Failed to create new tray for file: " .. file)
+                    log("Failed to create new workspace for file: " .. file)
                 end
             else
                 log("Failed to load: " .. file)
@@ -136,7 +160,7 @@ if application and application.triggerdesktopevent then
 end
 
 -- Completion message
-local ok_msg = pcall(function() system:messagebox("Batch Import Complete! Parts added to separate trays.") end)
+local ok_msg = pcall(function() system:messagebox("Batch Import to Workspaces Complete!") end)
 if not ok_msg then
     log("Batch Import Complete!")
 end
