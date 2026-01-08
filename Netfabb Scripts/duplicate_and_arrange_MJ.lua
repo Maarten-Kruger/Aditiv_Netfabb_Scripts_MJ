@@ -3,9 +3,9 @@
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
-local log_file_path = "C:\\Program Files\\Autodesk\\Netfabb 2026\\Examples"
+local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\duplicate_log.txt"
 local path_to_3mf = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Example Files" -- Directory containing .3mf files
-
+local f_log = io.open(log_file_path, "w")
 
 -- Helper for logging
 local function log(msg)
@@ -22,7 +22,7 @@ end
 log("Log file location: " .. log_file_path)
 
 -- Function to process a single tray
-local function process_tray(current_tray, tray_name, master_template_mesh, master_template_matrix)
+local function process_tray(current_tray, tray_name, master_template_mesh, master_template_matrix, master_template_name)
     log("--- Processing " .. tray_name .. " ---")
 
     if not current_tray or not current_tray.root then
@@ -47,7 +47,7 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
             new_luamesh:applymatrix(master_template_matrix)
         end
         template_part = root:addmesh(new_luamesh)
-        template_part.name = "Template Part"
+        template_part.name = master_template_name or "Template Part"
     end
 
     if not template_part then
@@ -130,6 +130,9 @@ local function process_tray(current_tray, tray_name, master_template_mesh, maste
         base_name = string.gsub(base_name, "%s*%(%d+%)", "") -- Remove " (1)"
         base_name = string.gsub(base_name, "_copy", "")      -- Remove "_copy"
 
+        -- Remove file extension (e.g. .stl) if present
+        base_name = string.gsub(base_name, "%.%w+$", "")
+
         local part_3mf_path = path_to_3mf .. "\\" .. base_name .. ".3mf"
         log("Looking for 3MF file: " .. part_3mf_path)
 
@@ -171,6 +174,7 @@ if _G.netfabbtrayhandler then
     -- Find Master Template (from first non-empty tray)
     local master_template_mesh = nil
     local master_template_matrix = nil
+    local master_template_name = nil
 
     for i = 0, netfabbtrayhandler.traycount - 1 do
         local t = netfabbtrayhandler:gettray(i)
@@ -178,7 +182,8 @@ if _G.netfabbtrayhandler then
             local first_mesh = t.root:getmesh(0)
             master_template_mesh = first_mesh.mesh
             master_template_matrix = first_mesh.matrix
-            log("Found Master Template in Tray " .. (i + 1))
+            master_template_name = first_mesh.name
+            log("Found Master Template in Tray " .. (i + 1) .. ": " .. tostring(master_template_name))
             break
         end
     end
@@ -186,7 +191,7 @@ if _G.netfabbtrayhandler then
     for i = 0, netfabbtrayhandler.traycount - 1 do
         local t = netfabbtrayhandler:gettray(i)
         if t then
-            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix)
+            process_tray(t, "Tray " .. (i + 1), master_template_mesh, master_template_matrix, master_template_name)
         else
             log("Error: Failed to retrieve Tray " .. (i + 1))
         end
