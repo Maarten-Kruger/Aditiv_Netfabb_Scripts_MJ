@@ -44,7 +44,8 @@ else
     end
 end
 
--- Ensure no trailing slash
+-- Clean up path: Remove double quotes and trailing slashes
+import_path = string.gsub(import_path, '"', '')
 if string.sub(import_path, -1) == "\\" then
     import_path = string.sub(import_path, 1, -2)
 end
@@ -63,13 +64,7 @@ log("Selected machine name: " .. machine_name)
 local workspaceID = trayHandler:getmachineidentifier(machine_name)
 
 if workspaceID == "" then
-    -- Try to see if the user typed "Formlabs Fuse 1" instead of "Fuse 1", logic from script 45 implies partial match might work or exact string is needed.
-    -- Script 45 uses "Fuse 1".
     log("Workspace instance not found for '" .. machine_name .. "'.")
-
-    -- Option: Fallback or Exit. The prompt implies we want specific settings.
-    -- Let's give one more chance or default to generic if user agrees?
-    -- For now, consistent with the plan "show an error and exit".
     system:messagebox("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.")
     return
 end
@@ -111,15 +106,38 @@ if xmlfilelist then
                     if partTrayMesh then
                         partTrayMesh.name = file
 
-                        -- Pack/Center using the Outbox Packer
-                        -- This replaces manual centering and ensures it fits the machine context
-                        local packer = newTray:createpacker(newTray.packingid_outbox)
-                        if packer then
-                            packer:pack()
-                            log("Added and packed: " .. file)
-                        else
-                            log("Added " .. file .. " but failed to create packer.")
+                        -- Manual Centering Logic
+                        -- We use manual translation because the packer sometimes fails to place parts inside the build volume.
+
+                        -- Get machine dimensions from the new tray
+                        local mx = newTray.machinesize_x or 100
+                        local my = newTray.machinesize_y or 100
+                        local mz = newTray.machinesize_z or 100
+
+                        -- Get Part Bounding Box
+                        local outbox = partTrayMesh.outbox
+                        if not outbox then
+                             pcall(function() partTrayMesh:calcoutbox() end)
+                             outbox = partTrayMesh.outbox
                         end
+
+                        if outbox then
+                            local cx = (outbox.minx + outbox.maxx) / 2.0
+                            local cy = (outbox.miny + outbox.maxy) / 2.0
+                            local min_z = outbox.minz
+
+                            -- Calculate translation to center on XY and sit on Z=0
+                            local tx = (mx / 2.0) - cx
+                            local ty = (my / 2.0) - cy
+                            local tz = -min_z
+
+                            -- Apply translation
+                            partTrayMesh:translate(tx, ty, tz)
+                            log("Added and centered: " .. file .. " at (" .. tx .. ", " .. ty .. ", " .. tz .. ")")
+                        else
+                            log("Added " .. file .. " but could not center (no bounding box info).")
+                        end
+
                     else
                         log("Loaded but failed to add to tray: " .. file)
                     end
