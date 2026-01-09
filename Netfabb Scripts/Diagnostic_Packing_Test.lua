@@ -172,36 +172,39 @@ local function main()
     -- Log Tray Info
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
 
-    -- TEST 1: TrueShape 2D (The problematic one)
-    run_test(target_tray, "TrueShape 2D (Visual Verification)", target_tray.packingid_trueshape, function(p)
-        p.packing_2d = true
-        p.minimaldistance = 2.0
-    end, true)
-
-    -- TEST 2: TrueShape 3D
-    -- run_test(target_tray, "TrueShape 3D", target_tray.packingid_trueshape, function(p)
-    --     p.packing_2d = false
+    -- TEST 1: TrueShape 2D (Centered / Sweetspot)
+    -- Tries to pack around the center of the tray (useful for cylinders).
+    -- run_test(target_tray, "TrueShape 2D (Centered)", target_tray.packingid_trueshape, function(p)
+    --     p.packing_2d = true
     --     p.minimaldistance = 2.0
-    --     p.z_limit = 0.0 -- Use full height
-    -- end)
 
-    -- TEST 3: Monte Carlo (Standard/Arbitrary)
-    -- run_test(target_tray, "Monte Carlo (Arbitrary Rotation)", target_tray.packingid_montecarlo, function(p)
-    --     p.packing_quality = -1
-    --     p.z_limit = 0.0
-    --     p.start_from_current_positions = false
-    --     pcall(function() p.defaultpartrotation = 0 end) -- 0: Arbitrary
-    -- end)
+    --     -- Attempt to center packing (Fix for Cylinder/No-Build Zones)
+    --     local cx = target_tray.machinesize_x / 2.0
+    --     local cy = target_tray.machinesize_y / 2.0
+    --     pcall(function()
+    --         p.part_placement = p.place_sweetspot
+    --         p.sweetspot_x = cx
+    --         p.sweetspot_y = cy
+    --         log("  Configured TrueShape Sweetspot: (" .. cx .. ", " .. cy .. ")")
+    --     end)
+    -- end, true)
+
 
     -- TEST 3b: Monte Carlo (Z-Only Rotation)
-    -- run_test(target_tray, "Monte Carlo (Z-Only Rotation)", target_tray.packingid_montecarlo, function(p)
-    --     p.packing_quality = -1
-    --     p.z_limit = 0.0
-    --     p.start_from_current_positions = false
-    --     -- 0: Arbitrary, 1: ZOnly, 2: Forbidden
-    --     local set_ok = pcall(function() p.defaultpartrotation = 1 end)
-    --     if not set_ok then log("  Notice: 'defaultpartrotation' property not supported on this packer.") end
-    -- end)
+    -- This addresses the "Script 9 works but rotates X/Y" issue.
+    run_test(target_tray, "Monte Carlo (Z-Only Rotation)", target_tray.packingid_montecarlo, function(p)
+        p.packing_quality = -1
+        p.z_limit = 0.0
+        p.start_from_current_positions = false
+
+        -- 0: Arbitrary, 1: ZOnly, 2: Forbidden
+        local set_ok = pcall(function() p.defaultpartrotation = 1 end)
+        if not set_ok then
+            log("  Notice: 'defaultpartrotation' property not supported on this packer.")
+        else
+            log("  Configured Monte Carlo for Z-Axis Rotation Only.")
+        end
+    end, true)
 
     -- TEST 3c: Monte Carlo (No Rotation)
     -- run_test(target_tray, "Monte Carlo (No Rotation)", target_tray.packingid_montecarlo, function(p)
