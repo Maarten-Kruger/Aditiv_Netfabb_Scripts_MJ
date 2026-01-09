@@ -6,7 +6,7 @@
 -- CONFIGURATION
 -- Select which packer to test:
 -- 0: TrueShape 2D
--- 1: Monte Carlo (Z-Axis Rotation Only + Safety Margin)
+-- 1: Monte Carlo (Z-Axis Rotation Only + Cylinder Safe Logic)
 -- 2: Bounding Box (Outbox Packer)
 local PACKER_OPTION = 1
 -- ==============================================================================
@@ -156,18 +156,20 @@ local function main()
 
     -- Log Tray Info
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
+    local shape_info = "Unknown"
+    pcall(function() shape_info = target_tray.machineshape end)
+    log("Tray Machine Shape: " .. tostring(shape_info))
 
     if PACKER_OPTION == 0 then
         -- TrueShape 2D
         run_test(target_tray, "TrueShape 2D", target_tray.packingid_trueshape, function(p)
             p.packing_2d = true
             p.minimaldistance = 2.0
-            -- Note: TrueShape often ignores 'z_limit' or 'outbox' manipulation for 2D packing
         end)
 
     elseif PACKER_OPTION == 1 then
         -- Monte Carlo
-        run_test(target_tray, "Monte Carlo (Z-Only + Margin)", target_tray.packingid_montecarlo, function(p)
+        run_test(target_tray, "Monte Carlo (Z-Only + Cylinder Safe)", target_tray.packingid_montecarlo, function(p)
             p.packing_quality = -1
             p.z_limit = 0.0
             p.start_from_current_positions = false
@@ -180,20 +182,36 @@ local function main()
                 log("  Configured Monte Carlo for Z-Axis Rotation Only.")
             end
 
-            -- Apply Safe Margin (10mm)
-            local margin = 10.0
+            -- Attempt to enable No-Build Zone Detection (heuristic)
+            pcall(function() p.check_no_build_zones = true end)
+            pcall(function() p.respect_no_build_zones = true end)
+
+            -- Cylinder Logic: Inscribed Square
+            -- Monte Carlo is a box packer. To guarantee safety on a cylinder,
+            -- we must restrict the outbox to the inscribed square.
             local ob_ok, ob = pcall(function() return p:getoutbox() end)
             if ob_ok and ob then
-                ob.minx = ob.minx + margin
-                ob.miny = ob.miny + margin
-                ob.maxx = ob.maxx - margin
-                ob.maxy = ob.maxy - margin
-                if ob.maxx > ob.minx and ob.maxy > ob.miny then
-                    p:setoutbox(ob)
-                    log("  Applied packing margin of " .. margin .. "mm.")
-                else
-                    log("  Warning: Tray too small for margin.")
-                end
+                local dx = ob.maxx - ob.minx
+                local dy = ob.maxy - ob.miny
+                local cx = (ob.minx + ob.maxx) / 2.0
+                local cy = (ob.miny + ob.maxy) / 2.0
+
+                -- Assuming cylinder diameter is roughly the bounding box width
+                local radius = math.min(dx, dy) / 2.0
+                local half_side = radius * 0.7071 -- sin(45)
+
+                -- Create Inscribed Square Outbox
+                ob.minx = cx - half_side
+                ob.maxx = cx + half_side
+                ob.miny = cy - half_side
+                ob.maxy = cy + half_side
+
+                p:setoutbox(ob)
+                log("  Applied Inscribed Square Outbox to fit Cylindrical Tray.")
+                log("  Center: ("..cx..", "..cy.."), Radius: "..radius)
+                log("  New Box: ["..ob.minx..", "..ob.maxx.."] x ["..ob.miny..", "..ob.maxy.."]")
+            else
+                log("  Failed to set Inscribed Square (Outbox retrieval failed).")
             end
         end)
 
