@@ -75,7 +75,7 @@ local function restore_tray_state(tray, state)
 end
 
 -- Test Runner Function
-local function run_test(tray, test_name, packer_id, setup_func)
+local function run_test(tray, test_name, packer_id, setup_func, keep_changes)
     log("TEST: " .. test_name)
 
     -- Check for locked parts
@@ -133,8 +133,15 @@ local function run_test(tray, test_name, packer_id, setup_func)
     log("  Result: " .. moved_count .. " of " .. mesh_count .. " parts moved.")
 
     -- Restore
-    restore_tray_state(tray, initial_state)
-    log("  State restored.")
+    if keep_changes then
+        log("  Keeping changes for visual inspection.")
+        if application and application.triggerdesktopevent then
+            application:triggerdesktopevent('updateparts')
+        end
+    else
+        restore_tray_state(tray, initial_state)
+        log("  State restored.")
+    end
     log("--------------------------------------------------")
 end
 
@@ -166,58 +173,58 @@ local function main()
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
 
     -- TEST 1: TrueShape 2D (The problematic one)
-    run_test(target_tray, "TrueShape 2D (Current Method)", target_tray.packingid_trueshape, function(p)
+    run_test(target_tray, "TrueShape 2D (Visual Verification)", target_tray.packingid_trueshape, function(p)
         p.packing_2d = true
         p.minimaldistance = 2.0
-    end)
+    end, true)
 
     -- TEST 2: TrueShape 3D
-    run_test(target_tray, "TrueShape 3D", target_tray.packingid_trueshape, function(p)
-        p.packing_2d = false
-        p.minimaldistance = 2.0
-        p.z_limit = 0.0 -- Use full height
-    end)
+    -- run_test(target_tray, "TrueShape 3D", target_tray.packingid_trueshape, function(p)
+    --     p.packing_2d = false
+    --     p.minimaldistance = 2.0
+    --     p.z_limit = 0.0 -- Use full height
+    -- end)
 
     -- TEST 3: Monte Carlo (Standard/Arbitrary)
-    run_test(target_tray, "Monte Carlo (Arbitrary Rotation)", target_tray.packingid_montecarlo, function(p)
-        p.packing_quality = -1
-        p.z_limit = 0.0
-        p.start_from_current_positions = false
-        pcall(function() p.defaultpartrotation = 0 end) -- 0: Arbitrary
-    end)
+    -- run_test(target_tray, "Monte Carlo (Arbitrary Rotation)", target_tray.packingid_montecarlo, function(p)
+    --     p.packing_quality = -1
+    --     p.z_limit = 0.0
+    --     p.start_from_current_positions = false
+    --     pcall(function() p.defaultpartrotation = 0 end) -- 0: Arbitrary
+    -- end)
 
     -- TEST 3b: Monte Carlo (Z-Only Rotation)
-    run_test(target_tray, "Monte Carlo (Z-Only Rotation)", target_tray.packingid_montecarlo, function(p)
-        p.packing_quality = -1
-        p.z_limit = 0.0
-        p.start_from_current_positions = false
-        -- 0: Arbitrary, 1: ZOnly, 2: Forbidden
-        local set_ok = pcall(function() p.defaultpartrotation = 1 end)
-        if not set_ok then log("  Notice: 'defaultpartrotation' property not supported on this packer.") end
-    end)
+    -- run_test(target_tray, "Monte Carlo (Z-Only Rotation)", target_tray.packingid_montecarlo, function(p)
+    --     p.packing_quality = -1
+    --     p.z_limit = 0.0
+    --     p.start_from_current_positions = false
+    --     -- 0: Arbitrary, 1: ZOnly, 2: Forbidden
+    --     local set_ok = pcall(function() p.defaultpartrotation = 1 end)
+    --     if not set_ok then log("  Notice: 'defaultpartrotation' property not supported on this packer.") end
+    -- end)
 
     -- TEST 3c: Monte Carlo (No Rotation)
-    run_test(target_tray, "Monte Carlo (No Rotation)", target_tray.packingid_montecarlo, function(p)
-        p.packing_quality = -1
-        p.z_limit = 0.0
-        p.start_from_current_positions = false
-        pcall(function() p.defaultpartrotation = 2 end) -- 2: Forbidden
-    end)
+    -- run_test(target_tray, "Monte Carlo (No Rotation)", target_tray.packingid_montecarlo, function(p)
+    --     p.packing_quality = -1
+    --     p.z_limit = 0.0
+    --     p.start_from_current_positions = false
+    --     pcall(function() p.defaultpartrotation = 2 end) -- 2: Forbidden
+    -- end)
 
     -- TEST 4: Scanline 2D
-    run_test(target_tray, "Scanline 2D", target_tray.packingid_2d, function(p)
-        p.rastersize = 1
-        p.anglecount = 4
-        p.placeoutside = true
-        p.packonlyselected = false
-        p.borderspacingxy = 2
-    end)
+    -- run_test(target_tray, "Scanline 2D", target_tray.packingid_2d, function(p)
+    --     p.rastersize = 1
+    --     p.anglecount = 4
+    --     p.placeoutside = true
+    --     p.packonlyselected = false
+    --     p.borderspacingxy = 2
+    -- end)
 
     -- TEST 5: Outbox Packer
-    run_test(target_tray, "Outbox Packer", target_tray.packingid_outbox, function(p)
-        p.minimaldistance = 2.0
-        p.pack2D = false
-    end)
+    -- run_test(target_tray, "Outbox Packer", target_tray.packingid_outbox, function(p)
+    --     p.minimaldistance = 2.0
+    --     p.pack2D = false
+    -- end)
 
     log("--- Diagnostic Complete ---")
     if system and system.messagedlg then
