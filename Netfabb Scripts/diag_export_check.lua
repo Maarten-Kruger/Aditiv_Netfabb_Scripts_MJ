@@ -91,6 +91,37 @@ if tray and tray.root and tray.root.meshcount > 0 then
     log("\n[Test K] Checking savesupport on TrayMesh...")
     local path_k = save_path_base .. "test_support.support"
     try_method(tm, "savesupport", path_k)
+
+    -- 5. Test Dual Export Strategy (Part + Separate Supports)
+    log("\n[Test L] Testing Dual Export Strategy (Part + Support Mesh)...")
+
+    -- Export Part
+    local part_path = save_path_base .. "test_dual_part.3mf"
+    if tm.mesh then
+        log("  Exporting Part Mesh...")
+        try_method(tm.mesh, "saveto3mf", part_path)
+    end
+
+    -- Export Supports
+    if tm.hassupport then
+        log("  Part has supports. Generating support mesh...")
+        local ok_sup, res_sup = pcall(function()
+            -- Generate support-only mesh
+            return tm:createsupportedmesh(false, true, true, 0.0)
+        end)
+
+        if ok_sup and res_sup then
+            local sm = res_sup.mesh or res_sup -- Handle TrayMesh or LuaMesh
+            local support_path = save_path_base .. "test_dual_support.3mf"
+            log("  Exporting Support Mesh...")
+            try_method(sm, "saveto3mf", support_path)
+        else
+            log("  Failed to generate support mesh.")
+        end
+    else
+        log("  Part does not have supports to export.")
+    end
+
 end
 
 log("--- Diagnostic Export Test End (Safe Mode) ---")
