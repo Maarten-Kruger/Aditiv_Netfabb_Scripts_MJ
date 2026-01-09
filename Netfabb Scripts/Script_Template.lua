@@ -12,12 +12,12 @@ end
 -- This popup asks the user for a filepath (or directory path).
 -- It allows pasting paths that might contain double quotes (common in Windows).
 local path_variable = ""
-local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path:", "Path Selection", "C:\\") end)
+local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path:", "Import Path", "C:\\") end)
 
 if ok_input and input_path and input_path ~= "" then
     path_variable = input_path
 else
-    log("No path provided. Exiting.")
+    log("No directory selected. Exiting.")
     return
 end
 
