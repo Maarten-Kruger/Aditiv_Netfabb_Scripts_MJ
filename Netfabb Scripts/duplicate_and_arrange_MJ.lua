@@ -25,10 +25,6 @@ end
 log("--- Script Started ---")
 log("Log file location: " .. log_file_path)
 
--- 1. Set Directory containing .3mf files
-local path_to_3mf = "C:\\Users\\Maarten\\OneDrive\\Desktop"
-log("3MF Directory: " .. path_to_3mf)
-
 -- Function to process a single tray
 local function process_tray(current_tray, tray_name)
     log("--- Processing " .. tray_name .. " ---")
@@ -108,9 +104,9 @@ local function process_tray(current_tray, tray_name)
     log("Max Parts: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
-    -- 5. Duplicate the part (using 3MF import)
+    -- 5. Duplicate the part (using createsupportedmesh to preserve supports)
     if duplicates_needed > 0 then
-        log("Duplicating part via 3MF import...")
+        log("Duplicating part via createsupportedmesh...")
 
         -- Determine the base name
         local base_name = template_part.name
@@ -123,44 +119,48 @@ local function process_tray(current_tray, tray_name)
         -- Trim trailing whitespace
         base_name = string.gsub(base_name, "%s+$", "")
 
-        local part_3mf_path = path_to_3mf .. "\\" .. base_name .. ".3mf"
-        log("Constructed 3MF Path: " .. part_3mf_path)
+        -- Generate Master Geometry with baked supports
+        -- createsupportedmesh(mergepart, mergeopensupport, mergeclosedsupport, openthickening)
+        local master_geometry = nil
+        if template_part.createsupportedmesh then
+            local success_sup, res_sup = pcall(function()
+                return template_part:createsupportedmesh(true, true, true, 0.0)
+            end)
 
-        -- Try to import once to verify existence
-        local verify_mesh = nil
-        local success_verify, res_verify = pcall(function() return system:load3mf(part_3mf_path) end)
-
-        if success_verify and res_verify then
-            verify_mesh = res_verify
-        else
-            log("Error: Could not load 3MF file at: " .. part_3mf_path)
-            log("Details: " .. tostring(res_verify))
-            return -- Cannot proceed with duplication for this part
-        end
-
-        -- If verification passed, we can't necessarily re-use 'verify_mesh' multiple times if adding it consumes it or if we need distinct objects.
-        -- Usually system:load3mf returns a new LuaMesh each time.
-        -- Let's use the first one we loaded.
-        if verify_mesh then
-             local new_traymesh = root:addmesh(verify_mesh)
-             new_traymesh.name = base_name .. " (1)"
-             log("Imported copy 1")
-        end
-
-        -- Loop for the rest
-        for i = 2, duplicates_needed do
-            local imported_mesh = nil
-            local success, res = pcall(function() return system:load3mf(part_3mf_path) end)
-
-            if success and res then
-                imported_mesh = res
-                local new_traymesh = root:addmesh(imported_mesh)
-                new_traymesh.name = base_name .. " (" .. i .. ")"
-                -- log("Imported copy " .. i) -- Reduce spam if needed, or keep for debug
+            if success_sup and res_sup then
+                -- res_sup is likely a TrayMesh or similar object.
+                -- We need the underlying LuaMesh to duplicate it properly using root:addmesh
+                if res_sup.mesh then
+                     master_geometry = res_sup.mesh
+                     log("Successfully generated supported mesh geometry.")
+                else
+                     log("Error: createsupportedmesh returned an object without a 'mesh' property.")
+                     -- Fallback? If it returns a LuaMesh directly?
+                     -- Diagnostic showed it returns a table/userdata.
+                     -- If it IS a LuaMesh, it won't have .mesh
+                     -- But previous log said "result tostring: table", error "no facecount".
+                     -- So it's likely a TrayMesh-like object.
+                end
             else
-                log("Failed to import copy " .. i .. ": " .. tostring(res))
+                log("Error: createsupportedmesh call failed: " .. tostring(res_sup))
             end
+        else
+            log("Error: createsupportedmesh method not available on this version.")
         end
+
+        if master_geometry then
+             -- Add copies
+             for i = 1, duplicates_needed do
+                 -- Add the mesh to the tray
+                 local new_traymesh = root:addmesh(master_geometry)
+                 new_traymesh.name = base_name .. " (" .. i .. ")"
+                 -- log("Created copy " .. i)
+             end
+             log("Added " .. duplicates_needed .. " supported duplicates.")
+        else
+             log("Aborting duplication due to failure in generating master mesh.")
+        end
+
     else
         log("No duplicates needed (Tray full or part too big).")
     end
