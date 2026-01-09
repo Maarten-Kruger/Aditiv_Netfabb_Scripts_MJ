@@ -22,7 +22,7 @@ local function log(msg)
     end
 end
 
-log("--- Diagnostic Export Test Start (Safe Mode) ---")
+log("--- Diagnostic Export Test Start (Round 2) ---")
 
 -- 1. Get Tray
 local tray = nil
@@ -40,7 +40,7 @@ if not tray then
 end
 
 -- Helper to safely check property and call method
-local function try_method(obj, method_name, arg1)
+local function try_method(obj, method_name, arg1, arg2)
     log("Checking " .. method_name .. "...")
     local func = nil
     -- Safe property access
@@ -50,48 +50,97 @@ local function try_method(obj, method_name, arg1)
 
     if ok_access and type(func) == "function" then
         log("  Method exists. Executing...")
-        local ok_call, err_call = pcall(function() func(obj, arg1) end)
+        local ok_call, err_call = pcall(function()
+            if arg2 then func(obj, arg1, arg2) else func(obj, arg1) end
+        end)
         if ok_call then
             log("  SUCCESS: " .. method_name .. " executed.")
+            return true
         else
             log("  FAILURE: " .. method_name .. " execution failed: " .. tostring(err_call))
+            return false
         end
     else
         log("  Method does not exist or property access failed.")
-        if not ok_access then log("  Access Error: " .. tostring(err_access)) end
+        return false
     end
 end
 
--- 2. Test Tray Export Methods
-local path_a = save_path_base .. "test_tray_saveto3mf.3mf"
-try_method(tray, "saveto3mf", path_a)
-
-local path_b = save_path_base .. "test_tray_save.3mf"
-try_method(tray, "save", path_b)
-
-local path_c = save_path_base .. "test_tray_export.3mf"
-try_method(tray, "export", path_c)
-
-
--- 3. Test Mesh Export Methods (Fallback)
-log("\n[Test D] Checking mesh:saveto3mf (First Part)...")
+-- 2. Introspect TrayMesh for 'support' methods
 if tray.root and tray.root.meshcount > 0 then
     local tm = tray.root:getmesh(0)
-    local lm = tm.mesh
+    log("\n[Introspecting TrayMesh: " .. tm.name .. "]")
 
-    if lm then
-        local path_d = save_path_base .. "test_mesh_saveto3mf.3mf"
-        try_method(lm, "saveto3mf", path_d)
-
-        -- Also try exporting the TrayMesh (tm) directly?
-        log("\n[Test E] Checking TrayMesh:saveto3mf...")
-        local path_e = save_path_base .. "test_traymesh_saveto3mf.3mf"
-        try_method(tm, "saveto3mf", path_e)
+    local mt = getmetatable(tm)
+    if mt then
+        for k, v in pairs(mt) do
+             if string.find(k, "support") or string.find(k, "save") then
+                 log("  Found method/prop: " .. k)
+             end
+        end
     else
-        log("First part has no mesh property.")
+        log("  No metatable accessible.")
     end
-else
-    log("No parts in tray to test mesh export.")
+
+    -- 3. Test: Export Baked Support Mesh to 3MF
+    -- This tests if we can at least get the support GEOMETRY out, even if not parametric.
+    log("\n[Test F] Generating Baked Support Mesh and Exporting to 3MF...")
+    -- createsupportedmesh(mergepart, mergeopensupport, mergeclosedsupport, openthickening)
+    local baked_tm = nil
+    if tm.createsupportedmesh then
+        local ok, res = pcall(function() return tm:createsupportedmesh(true, true, true, 0.0) end)
+        if ok and res then
+            baked_tm = res
+            log("  createsupportedmesh successful.")
+        else
+            log("  createsupportedmesh failed: " .. tostring(res))
+        end
+    end
+
+    if baked_tm then
+        -- Check what baked_tm is (TrayMesh or LuaMesh?)
+        -- If it's a TrayMesh, access .mesh. If LuaMesh, use directly.
+        local mesh_to_save = nil
+        if baked_tm.mesh then
+            mesh_to_save = baked_tm.mesh
+            log("  Result is TrayMesh, using .mesh")
+        else
+            mesh_to_save = baked_tm
+            log("  Result seems to be LuaMesh")
+        end
+
+        local path_f = save_path_base .. "test_baked_supports.3mf"
+        try_method(mesh_to_save, "saveto3mf", path_f)
+    end
+
+    -- 4. Test: Export Separate Support Mesh
+    log("\n[Test G] Generating Separate Support Mesh and Exporting...")
+    local support_only_tm = nil
+    if tm.createsupportedmesh then
+         -- mergepart=false, mergesupports=true
+         local ok, res = pcall(function() return tm:createsupportedmesh(false, true, true, 0.0) end)
+         if ok and res then support_only_tm = res end
+    end
+
+    if support_only_tm then
+        local mesh_to_save = support_only_tm.mesh or support_only_tm
+        local path_g = save_path_base .. "test_support_only.3mf"
+        try_method(mesh_to_save, "saveto3mf", path_g)
+    end
+
+    -- 5. Test: Save .support file? (If such method exists)
+    log("\n[Test H] Checking savesupport method...")
+    local path_h = save_path_base .. "test_support_file.support"
+    try_method(tm, "savesupport", path_h)
+
 end
 
-log("--- Diagnostic Export Test End ---")
+-- 6. Check System Save Project (Last Resort for "Tray" save)
+log("\n[Test I] Checking system:saveproject...")
+if system.saveproject then
+    -- saveproject(filename)
+    local path_i = save_path_base .. "test_project.fabbproject"
+    try_method(system, "saveproject", path_i)
+end
+
+log("--- Diagnostic Export Test End (Round 2) ---")
