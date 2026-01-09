@@ -7,7 +7,7 @@ local is_cylinder = true   -- Set to true if the build platform is cylindrical
 local save_path = ""
 
 -- 1. Popup for Filepath
-local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path:", "Import Path", "C:\\") end)
+local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path to Save Log File to:", "Import Log Folder Path", "C:\\") end)
 
 if ok_input and input_path and input_path ~= "" then
     save_path = input_path
