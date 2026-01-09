@@ -126,26 +126,27 @@ local function main()
     -- 2. Capture State (Post-Move)
     local pre_pack_state = get_tray_state(target_tray)
 
-    -- 3. Run TrueShape 2D Packer
-    log("TEST: TrueShape 2D")
-    local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_trueshape) end)
+    -- 3. Run Monte Carlo Packer (Z-Limit 1mm)
+    log("TEST: Monte Carlo (Z-Limit 1mm)")
+    local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_montecarlo) end)
 
     if not p_ok or not packer then
-        log("  FAILED to create TrueShape packer.")
+        log("  FAILED to create Monte Carlo packer.")
         return
     end
 
     -- Configure Packer
     local cfg_ok, cfg_err = pcall(function()
-        packer.packing_2d = true
+        packer.z_limit = 1.0
         packer.minimaldistance = 1.0
-        packer.borderspacingxy = 1.0
+        packer.packing_quality = -1 -- Default/High
+        packer.start_from_current_positions = false
 
-        -- Force packing of selected parts (which we just selected)
+        -- Restrict Rotation: Z-Axis Only
+        pcall(function() packer.defaultpartrotation = 1 end)
+
+        -- Force packing of selected parts
         packer.packonlyselected = true
-
-        -- Try to enable rotation steps (commonly needed for good packing)
-        pcall(function() packer.rotation_z = 90.0 end) -- 90 degree increments
     end)
 
     if not cfg_ok then
