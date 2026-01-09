@@ -22,7 +22,7 @@ local function log(msg)
     end
 end
 
-log("--- Diagnostic Export Test Start ---")
+log("--- Diagnostic Export Test Start (Safe Mode) ---")
 
 -- 1. Get Tray
 local tray = nil
@@ -39,50 +39,38 @@ if not tray then
     return
 end
 
+-- Helper to safely check property and call method
+local function try_method(obj, method_name, arg1)
+    log("Checking " .. method_name .. "...")
+    local func = nil
+    -- Safe property access
+    local ok_access, err_access = pcall(function()
+        func = obj[method_name]
+    end)
+
+    if ok_access and type(func) == "function" then
+        log("  Method exists. Executing...")
+        local ok_call, err_call = pcall(function() func(obj, arg1) end)
+        if ok_call then
+            log("  SUCCESS: " .. method_name .. " executed.")
+        else
+            log("  FAILURE: " .. method_name .. " execution failed: " .. tostring(err_call))
+        end
+    else
+        log("  Method does not exist or property access failed.")
+        if not ok_access then log("  Access Error: " .. tostring(err_access)) end
+    end
+end
+
 -- 2. Test Tray Export Methods
-
--- Test A: tray:saveto3mf
-log("\n[Test A] Checking tray:saveto3mf...")
 local path_a = save_path_base .. "test_tray_saveto3mf.3mf"
-if tray.saveto3mf then
-    local ok, err = pcall(function() tray:saveto3mf(path_a) end)
-    if ok then
-        log("SUCCESS: tray:saveto3mf executed. Check " .. path_a)
-    else
-        log("FAILURE: tray:saveto3mf failed: " .. tostring(err))
-    end
-else
-    log("Method tray:saveto3mf does not exist.")
-end
+try_method(tray, "saveto3mf", path_a)
 
--- Test B: tray:save
-log("\n[Test B] Checking tray:save...")
 local path_b = save_path_base .. "test_tray_save.3mf"
-if tray.save then
-    -- Assumption: 'save' might take a filepath
-    local ok, err = pcall(function() tray:save(path_b) end)
-    if ok then
-        log("SUCCESS: tray:save executed. Check " .. path_b)
-    else
-        log("FAILURE: tray:save failed: " .. tostring(err))
-    end
-else
-    log("Method tray:save does not exist.")
-end
+try_method(tray, "save", path_b)
 
--- Test C: tray:export
-log("\n[Test C] Checking tray:export...")
 local path_c = save_path_base .. "test_tray_export.3mf"
-if tray.export then
-    local ok, err = pcall(function() tray:export(path_c) end)
-    if ok then
-        log("SUCCESS: tray:export executed. Check " .. path_c)
-    else
-        log("FAILURE: tray:export failed: " .. tostring(err))
-    end
-else
-    log("Method tray:export does not exist.")
-end
+try_method(tray, "export", path_c)
 
 
 -- 3. Test Mesh Export Methods (Fallback)
@@ -93,16 +81,12 @@ if tray.root and tray.root.meshcount > 0 then
 
     if lm then
         local path_d = save_path_base .. "test_mesh_saveto3mf.3mf"
-        if lm.saveto3mf then
-            local ok, err = pcall(function() lm:saveto3mf(path_d) end)
-            if ok then
-                log("SUCCESS: mesh:saveto3mf executed. Check " .. path_d)
-            else
-                log("FAILURE: mesh:saveto3mf failed: " .. tostring(err))
-            end
-        else
-            log("Method mesh:saveto3mf does not exist.")
-        end
+        try_method(lm, "saveto3mf", path_d)
+
+        -- Also try exporting the TrayMesh (tm) directly?
+        log("\n[Test E] Checking TrayMesh:saveto3mf...")
+        local path_e = save_path_base .. "test_traymesh_saveto3mf.3mf"
+        try_method(tm, "saveto3mf", path_e)
     else
         log("First part has no mesh property.")
     end
