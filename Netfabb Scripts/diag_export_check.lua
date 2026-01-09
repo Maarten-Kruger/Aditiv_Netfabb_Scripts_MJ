@@ -1,8 +1,10 @@
 -- diag_export_check.lua
--- Diagnostic script to find available export methods on Tray and System objects
--- Output is saved to C:\Users\Maarten\OneDrive\Desktop\diag_log.txt
+-- Diagnostic script to test export methods and check for support preservation.
+-- Output log: C:\Users\Maarten\OneDrive\Desktop\diag_log.txt
+-- Output files: C:\Users\Maarten\OneDrive\Desktop\test_*.3mf
 
 local log_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\diag_log.txt"
+local save_path_base = "C:\\Users\\Maarten\\OneDrive\\Desktop\\"
 
 -- Setup Logging using system:logtofile
 if system and system.logtofile then
@@ -16,82 +18,96 @@ local function log(msg)
     if system and system.log then
         system:log(msg)
     else
-        -- Fallback print
         print(msg)
     end
 end
 
-log("--- Diagnostic Start ---")
+log("--- Diagnostic Export Test Start ---")
 
--- 1. Inspect Global 'system'
-log("\n[Checking System Methods]")
-if system then
-    local mt = getmetatable(system)
-    if mt then
-        for k, v in pairs(mt) do
-            if type(v) == "function" or type(v) == "userdata" then
-                if string.find(k, "save") or string.find(k, "export") or string.find(k, "write") then
-                    log("system:" .. k)
-                end
-            end
-        end
+-- 1. Get Tray
+local tray = nil
+if _G.netfabbtrayhandler and netfabbtrayhandler.traycount > 0 then
+    tray = netfabbtrayhandler:gettray(0)
+    log("Got tray from netfabbtrayhandler.")
+elseif _G.tray then
+    tray = _G.tray
+    log("Got tray from global variable 'tray'.")
+end
+
+if not tray then
+    log("Error: No tray found. Aborting.")
+    return
+end
+
+-- 2. Test Tray Export Methods
+
+-- Test A: tray:saveto3mf
+log("\n[Test A] Checking tray:saveto3mf...")
+local path_a = save_path_base .. "test_tray_saveto3mf.3mf"
+if tray.saveto3mf then
+    local ok, err = pcall(function() tray:saveto3mf(path_a) end)
+    if ok then
+        log("SUCCESS: tray:saveto3mf executed. Check " .. path_a)
     else
-        log("system has no metatable accessible.")
-    end
-end
-
--- 2. Inspect Tray Object
-log("\n[Checking Tray Methods]")
-local tray_to_check = nil
-
-if _G.netfabbtrayhandler then
-    if netfabbtrayhandler.traycount > 0 then
-        tray_to_check = netfabbtrayhandler:gettray(0)
-        log("Got tray from netfabbtrayhandler: " .. tostring(tray_to_check))
-    end
-end
-
-if not tray_to_check and _G.tray then
-    tray_to_check = _G.tray
-    log("Got tray from global variable 'tray'")
-end
-
-if tray_to_check then
-    local mt = getmetatable(tray_to_check)
-    if mt then
-        for k, v in pairs(mt) do
-             -- Log anything that looks like save/export
-             if string.find(k, "save") or string.find(k, "export") or string.find(k, "write") or string.find(k, "3mf") then
-                 log("tray:" .. k)
-             end
-        end
-    else
-        log("Tray has no metatable accessible.")
-        -- Manual check for expected methods
-        local candidates = {"saveto3mf", "export", "save", "write", "saveproject"}
-        for _, name in ipairs(candidates) do
-            if tray_to_check[name] then
-                log("Found property/method: tray." .. name)
-            end
-        end
+        log("FAILURE: tray:saveto3mf failed: " .. tostring(err))
     end
 else
-    log("No tray object found to inspect.")
+    log("Method tray:saveto3mf does not exist.")
 end
 
--- 3. Inspect FabbProject
-log("\n[Checking FabbProject]")
-if _G.fabbproject then
-    local mt = getmetatable(fabbproject)
-    if mt then
-         for k, v in pairs(mt) do
-             if string.find(k, "save") or string.find(k, "export") then
-                 log("fabbproject:" .. k)
-             end
-         end
+-- Test B: tray:save
+log("\n[Test B] Checking tray:save...")
+local path_b = save_path_base .. "test_tray_save.3mf"
+if tray.save then
+    -- Assumption: 'save' might take a filepath
+    local ok, err = pcall(function() tray:save(path_b) end)
+    if ok then
+        log("SUCCESS: tray:save executed. Check " .. path_b)
+    else
+        log("FAILURE: tray:save failed: " .. tostring(err))
     end
 else
-    log("fabbproject global is nil.")
+    log("Method tray:save does not exist.")
 end
 
-log("--- Diagnostic End ---")
+-- Test C: tray:export
+log("\n[Test C] Checking tray:export...")
+local path_c = save_path_base .. "test_tray_export.3mf"
+if tray.export then
+    local ok, err = pcall(function() tray:export(path_c) end)
+    if ok then
+        log("SUCCESS: tray:export executed. Check " .. path_c)
+    else
+        log("FAILURE: tray:export failed: " .. tostring(err))
+    end
+else
+    log("Method tray:export does not exist.")
+end
+
+
+-- 3. Test Mesh Export Methods (Fallback)
+log("\n[Test D] Checking mesh:saveto3mf (First Part)...")
+if tray.root and tray.root.meshcount > 0 then
+    local tm = tray.root:getmesh(0)
+    local lm = tm.mesh
+
+    if lm then
+        local path_d = save_path_base .. "test_mesh_saveto3mf.3mf"
+        if lm.saveto3mf then
+            local ok, err = pcall(function() lm:saveto3mf(path_d) end)
+            if ok then
+                log("SUCCESS: mesh:saveto3mf executed. Check " .. path_d)
+            else
+                log("FAILURE: mesh:saveto3mf failed: " .. tostring(err))
+            end
+        else
+            log("Method mesh:saveto3mf does not exist.")
+        end
+    else
+        log("First part has no mesh property.")
+    end
+else
+    log("No parts in tray to test mesh export.")
+end
+
+log("--- Diagnostic Export Test End ---")
