@@ -1,15 +1,6 @@
 -- Diagnostic_Packing_Test.lua
--- Diagnostic script to test specific packing algorithms.
--- Allows switching between methods to verify physical part movement.
-
--- ==============================================================================
--- CONFIGURATION
--- Select which packer to test:
--- 0: TrueShape 2D
--- 1: Monte Carlo (Z-Axis Rotation Only + Cylinder Safe Logic)
--- 2: Bounding Box (Outbox Packer)
-local PACKER_OPTION = 1
--- ==============================================================================
+-- Focused diagnostic script for TrueShape 2D Packer.
+-- Forces a repack by moving parts outside the build volume first.
 
 -- Standard Logging Setup
 local function log(msg)
@@ -39,9 +30,8 @@ if system and system.logtofile then
     pcall(function() system:logtofile(log_file_path) end)
 end
 
-log("--- Diagnostic Packing Test Started ---")
+log("--- Diagnostic Packing Test Started (TrueShape 2D Only) ---")
 log("Log file: " .. log_file_path)
-log("Selected Packer Option: " .. tostring(PACKER_OPTION))
 
 -- Helper: Check Matrix Equality
 local function matrix_equals(m1, m2)
@@ -68,71 +58,44 @@ local function get_tray_state(tray)
     return state
 end
 
--- Test Runner Function
-local function run_test(tray, test_name, packer_id, setup_func)
-    log("TEST: " .. test_name)
-
-    -- Check for locked parts
+-- Helper: Move Parts Outside
+-- Shifts all non-locked parts to a position likely outside the build plate
+local function move_parts_outside(tray)
+    log("  Moving parts outside build plate to force repacking...")
+    local moved = 0
     for i = 0, tray.root.meshcount - 1 do
         local tm = tray.root:getmesh(i)
-        local is_locked_prop = false
-        pcall(function() is_locked_prop = tm.lockedposition end)
 
+        -- Check locked
+        local is_locked = false
+        pcall(function() is_locked = tm.lockedposition end)
         local restriction = "unknown"
         pcall(function() restriction = tm:getpackingoption('restriction') end)
 
-        if is_locked_prop or restriction == 'locked' then
-            log("  WARNING: Part " .. i .. " ("..tm.name..") is LOCKED. Prop="..tostring(is_locked_prop)..", Opt="..tostring(restriction))
+        if not is_locked and restriction ~= 'locked' then
+            -- Translate far to the negative X/Y
+            -- Using a fixed large offset ensures they leave the platform
+            local offset_x = -1000.0
+            local offset_y = -1000.0
+
+            -- Better: Move relative to current outbox to ensure clearing
+            local ob = nil
+            pcall(function() ob = tm.outbox end)
+            if ob then
+                -- Move to Left-Bottom of current position
+                tm:translate(-500 - ob.maxx, -500 - ob.maxy, 0)
+                moved = moved + 1
+            else
+                -- Fallback
+                tm:translate(-1000, -1000, 0)
+                moved = moved + 1
+            end
         end
     end
-
-    local initial_state = get_tray_state(tray)
-
-    local p_ok, packer = pcall(function() return tray:createpacker(packer_id) end)
-    if not p_ok or not packer then
-        log("  FAILED to create packer (ID: " .. tostring(packer_id) .. ")")
-        return
-    end
-
-    -- Apply settings
-    if setup_func then
-        local s_ok, s_err = pcall(function() setup_func(packer) end)
-        if not s_ok then
-            log("  Error applying settings: " .. tostring(s_err))
-        end
-    end
-
-    log("  Running pack()...")
-    local pack_ok, pack_res = pcall(function() return packer:pack() end)
-
-    if pack_ok then
-        log("  Pack returned code: " .. tostring(pack_res))
-    else
-        log("  Pack CRASHED: " .. tostring(pack_res))
-    end
-
-    -- Verification
-    local moved_count = 0
-    local mesh_count = tray.root.meshcount
-    for i = 0, mesh_count - 1 do
-        local tm = tray.root:getmesh(i)
-        local old_m = initial_state[i]
-        local new_m = tm.matrix
-        if not matrix_equals(old_m, new_m) then
-            moved_count = moved_count + 1
-        end
-    end
-
-    log("  Result: " .. moved_count .. " of " .. mesh_count .. " parts moved.")
-    log("  Keeping changes for visual inspection.")
-
-    if application and application.triggerdesktopevent then
-        application:triggerdesktopevent('updateparts')
-    end
-    log("--------------------------------------------------")
+    log("  Moved " .. moved .. " parts.")
 end
 
--- Main Loop
+-- Main Test Function
 local function main()
     if not _G.netfabbtrayhandler then
         log("Error: netfabbtrayhandler not found.")
@@ -154,43 +117,63 @@ local function main()
         return
     end
 
-    -- Log Tray Info
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
-    local shape_info = "Unknown"
-    pcall(function() shape_info = target_tray.machineshape end)
-    log("Tray Machine Shape: " .. tostring(shape_info))
 
-    if PACKER_OPTION == 0 then
-        -- TrueShape 2D
-        run_test(target_tray, "TrueShape 2D", target_tray.packingid_trueshape, function(p)
-            p.packing_2d = true
-            p.minimaldistance = 2.0
-        end)
+    -- 1. Move Parts Outside
+    move_parts_outside(target_tray)
 
-    elseif PACKER_OPTION == 1 then
-        -- Monte Carlo
-        run_test(target_tray, "Monte Carlo (Z-Only)", target_tray.packingid_montecarlo, function(p)
-            p.packing_quality = -1
-            p.z_limit = 0.0
-            p.start_from_current_positions = false
+    -- 2. Capture State (Post-Move)
+    local pre_pack_state = get_tray_state(target_tray)
 
-            -- Restrict to Z-Axis Rotation Only
-            local set_ok = pcall(function() p.defaultpartrotation = 1 end)
-            if not set_ok then
-                log("  Notice: 'defaultpartrotation' property not supported on this packer.")
-            else
-                log("  Configured Monte Carlo for Z-Axis Rotation Only.")
-            end
-        end)
+    -- 3. Run TrueShape 2D Packer
+    log("TEST: TrueShape 2D")
+    local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_trueshape) end)
 
-    elseif PACKER_OPTION == 2 then
-        -- Bounding Box (Outbox Packer)
-        run_test(target_tray, "Bounding Box", target_tray.packingid_outbox, function(p)
-            p.minimaldistance = 2.0
-            p.pack2D = false
-        end)
+    if not p_ok or not packer then
+        log("  FAILED to create TrueShape packer.")
+        return
+    end
+
+    -- Configure Packer
+    local cfg_ok, cfg_err = pcall(function()
+        packer.packing_2d = true
+        packer.minimaldistance = 1.0
+        packer.borderspacingxy = 1.0
+
+        -- Try to enable rotation steps (commonly needed for good packing)
+        pcall(function() packer.rotation_z = 90.0 end) -- 90 degree increments
+    end)
+
+    if not cfg_ok then
+        log("  Error configuring packer: " .. tostring(cfg_err))
+    end
+
+    log("  Running pack()...")
+    local pack_ok, pack_res = pcall(function() return packer:pack() end)
+
+    if pack_ok then
+        log("  Pack returned code: " .. tostring(pack_res))
     else
-        log("Invalid PACKER_OPTION selected.")
+        log("  Pack CRASHED: " .. tostring(pack_res))
+    end
+
+    -- 4. Verification
+    local moved_count = 0
+    local mesh_count = target_tray.root.meshcount
+    for i = 0, mesh_count - 1 do
+        local tm = target_tray.root:getmesh(i)
+        local old_m = pre_pack_state[i]
+        local new_m = tm.matrix
+        if not matrix_equals(old_m, new_m) then
+            moved_count = moved_count + 1
+        end
+    end
+
+    log("  Result: " .. moved_count .. " of " .. mesh_count .. " parts moved (from outside position).")
+    log("  Keeping changes for visual inspection.")
+
+    if application and application.triggerdesktopevent then
+        application:triggerdesktopevent('updateparts')
     end
 
     log("--- Diagnostic Complete ---")
