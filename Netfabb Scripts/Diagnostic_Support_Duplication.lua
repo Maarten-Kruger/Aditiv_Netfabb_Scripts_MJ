@@ -100,9 +100,25 @@ if traymesh.createsupportedmesh then
         log("Result tostring: " .. tostring(result))
 
         if result then
-            -- Check if it is a Mesh object we can add to the tray
-            if result.facecount then
-                log("Result appears to be a LuaMesh. Facecount: " .. result.facecount)
+            -- Safely check for properties using pcall because accessing invalid props on userdata crashes
+            local is_luamesh = false
+            local fc = nil
+            pcall(function()
+                fc = result.facecount
+                if fc then is_luamesh = true end
+            end)
+
+            local is_traymesh = false
+            local has_mesh_prop = false
+            pcall(function()
+                if result.mesh then has_mesh_prop = true end
+            end)
+            -- A TrayMesh typically has a 'mesh' property which is the LuaMesh
+            if has_mesh_prop then is_traymesh = true end
+
+
+            if is_luamesh then
+                log("Result appears to be a LuaMesh. Facecount: " .. tostring(fc))
 
                 -- Add to tray to visualize
                 local new_tm = root:addmesh(result)
@@ -113,10 +129,16 @@ if traymesh.createsupportedmesh then
                 if traymesh.mesh then
                      log("Original Facecount: " .. traymesh.mesh.facecount)
                 end
-                log("New Facecount: " .. result.facecount)
+                log("New Facecount: " .. tostring(fc))
 
-            elseif result.mesh then
-                 log("Result appears to be a TrayMesh.")
+            elseif is_traymesh then
+                 log("Result appears to be a TrayMesh (has .mesh property).")
+                 -- If it's a TrayMesh, extracting the LuaMesh for adding to tray
+                 local res_lua_mesh = result.mesh
+                 local new_tm = root:addmesh(res_lua_mesh)
+                 new_tm.name = "CreatedSupportedMesh Result (from TrayMesh)"
+                 log("Added extracted mesh to tray.")
+
             else
                  log("Result is unknown userdata.")
                  inspect_object(result, "ResultObject")

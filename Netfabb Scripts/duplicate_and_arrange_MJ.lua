@@ -128,18 +128,26 @@ local function process_tray(current_tray, tray_name)
             end)
 
             if success_sup and res_sup then
-                -- res_sup is likely a TrayMesh or similar object.
-                -- We need the underlying LuaMesh to duplicate it properly using root:addmesh
-                if res_sup.mesh then
+                -- Check for mesh property safely
+                local has_mesh_prop = false
+                pcall(function()
+                    if res_sup.mesh then has_mesh_prop = true end
+                end)
+
+                if has_mesh_prop then
                      master_geometry = res_sup.mesh
-                     log("Successfully generated supported mesh geometry.")
+                     log("Successfully generated supported mesh geometry (TrayMesh).")
                 else
-                     log("Error: createsupportedmesh returned an object without a 'mesh' property.")
-                     -- Fallback? If it returns a LuaMesh directly?
-                     -- Diagnostic showed it returns a table/userdata.
-                     -- If it IS a LuaMesh, it won't have .mesh
-                     -- But previous log said "result tostring: table", error "no facecount".
-                     -- So it's likely a TrayMesh-like object.
+                     -- Maybe it IS a LuaMesh?
+                     local is_luamesh = false
+                     pcall(function() if res_sup.facecount then is_luamesh = true end end)
+
+                     if is_luamesh then
+                         master_geometry = res_sup
+                         log("Successfully generated supported mesh geometry (LuaMesh).")
+                     else
+                         log("Error: createsupportedmesh returned unknown object type.")
+                     end
                 end
             else
                 log("Error: createsupportedmesh call failed: " .. tostring(res_sup))
