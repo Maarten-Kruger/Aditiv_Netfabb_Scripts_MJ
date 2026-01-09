@@ -3,20 +3,21 @@
 -- Output is saved to C:\Users\Maarten\OneDrive\Desktop\diag_log.txt
 
 local log_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\diag_log.txt"
-local f = io.open(log_path, "w")
-if not f then
-    -- Try a fallback path if the specific one fails
-    log_path = "C:\\diag_log.txt"
-    f = io.open(log_path, "w")
+
+-- Setup Logging using system:logtofile
+if system and system.logtofile then
+    local ok, err = pcall(function() system:logtofile(log_path) end)
+    if not ok then
+        if system.log then system:log("Failed to set log file: " .. tostring(err)) end
+    end
 end
 
 local function log(msg)
-    if f then
-        f:write(msg .. "\n")
-        f:flush()
-    end
     if system and system.log then
         system:log(msg)
+    else
+        -- Fallback print
+        print(msg)
     end
 end
 
@@ -94,4 +95,3 @@ else
 end
 
 log("--- Diagnostic End ---")
-if f then f:close() end
