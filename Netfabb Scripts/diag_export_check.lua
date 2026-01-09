@@ -22,7 +22,7 @@ local function log(msg)
     end
 end
 
-log("--- Diagnostic Export Test Start (Round 3) ---")
+log("--- Diagnostic Export Test Start (Safe Mode) ---")
 
 -- 1. Get Tray
 local tray = nil
@@ -61,20 +61,28 @@ local function try_method(obj, method_name, arg1, arg2)
     end
 end
 
--- 2. Test Project Saving (Preserves Everything?)
+-- 2. Test Project Saving (Safely)
 log("\n[Test I] Checking system:saveproject (Full Project)...")
-if system.saveproject then
+-- Pcall the access itself
+local has_saveproject = false
+pcall(function()
+    if system.saveproject then has_saveproject = true end
+end)
+
+if has_saveproject then
     local path_i = save_path_base .. "test_project.fabbproject"
     try_method(system, "saveproject", path_i)
 else
-    log("system:saveproject not found (checking explicitly).")
+    log("system:saveproject not found.")
 end
 
 -- 3. Test FabbProject global if available
+log("\n[Test J] Checking fabbproject:savetofile...")
 if _G.fabbproject then
-    log("\n[Test J] Checking fabbproject:savetofile...")
     local path_j = save_path_base .. "test_fabbproject.fabbproject"
     try_method(fabbproject, "savetofile", path_j)
+else
+    log("fabbproject global is nil.")
 end
 
 -- 4. Test Saving .support file explicitly
@@ -85,4 +93,4 @@ if tray and tray.root and tray.root.meshcount > 0 then
     try_method(tm, "savesupport", path_k)
 end
 
-log("--- Diagnostic Export Test End (Round 3) ---")
+log("--- Diagnostic Export Test End (Safe Mode) ---")
