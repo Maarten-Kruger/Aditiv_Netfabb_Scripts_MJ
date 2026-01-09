@@ -73,12 +73,7 @@ local function move_parts_outside(tray)
         pcall(function() restriction = tm:getpackingoption('restriction') end)
 
         if not is_locked and restriction ~= 'locked' then
-            -- 1. Ensure part is eligible for packing
-            pcall(function() tm.selected = true end)
-            pcall(function() tm.lockedposition = false end)
-            pcall(function() tm:setpackingoption('restriction', 'norestriction') end)
-
-            -- 2. Translate to negative X/Y (outside platform)
+            -- Translate to negative X/Y (outside platform)
             -- We move relative to current outbox to ensure clearing
             local ob = nil
             pcall(function() ob = tm.outbox end)
@@ -93,7 +88,7 @@ local function move_parts_outside(tray)
             end
         end
     end
-    log("  Moved " .. moved .. " parts (Selected & set to 'norestriction').")
+    log("  Moved " .. moved .. " parts.")
 end
 
 -- Main Test Function
@@ -144,9 +139,6 @@ local function main()
 
         -- Restrict Rotation: Z-Axis Only
         pcall(function() packer.defaultpartrotation = 1 end)
-
-        -- Force packing of selected parts
-        packer.packonlyselected = true
     end)
 
     if not cfg_ok then
