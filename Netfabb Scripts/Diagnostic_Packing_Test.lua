@@ -73,26 +73,27 @@ local function move_parts_outside(tray)
         pcall(function() restriction = tm:getpackingoption('restriction') end)
 
         if not is_locked and restriction ~= 'locked' then
-            -- Translate far to the negative X/Y
-            -- Using a fixed large offset ensures they leave the platform
-            local offset_x = -1000.0
-            local offset_y = -1000.0
+            -- 1. Ensure part is eligible for packing
+            pcall(function() tm.selected = true end)
+            pcall(function() tm.lockedposition = false end)
+            pcall(function() tm:setpackingoption('restriction', 'norestriction') end)
 
-            -- Better: Move relative to current outbox to ensure clearing
+            -- 2. Translate to negative X/Y (outside platform)
+            -- We move relative to current outbox to ensure clearing
             local ob = nil
             pcall(function() ob = tm.outbox end)
             if ob then
                 -- Move to Left-Bottom of current position
-                tm:translate(-500 - ob.maxx, -500 - ob.maxy, 0)
+                tm:translate(-200 - ob.maxx, -200 - ob.maxy, 0)
                 moved = moved + 1
             else
                 -- Fallback
-                tm:translate(-1000, -1000, 0)
+                tm:translate(-500, -500, 0)
                 moved = moved + 1
             end
         end
     end
-    log("  Moved " .. moved .. " parts.")
+    log("  Moved " .. moved .. " parts (Selected & set to 'norestriction').")
 end
 
 -- Main Test Function
@@ -139,6 +140,9 @@ local function main()
         packer.packing_2d = true
         packer.minimaldistance = 1.0
         packer.borderspacingxy = 1.0
+
+        -- Force packing of selected parts (which we just selected)
+        packer.packonlyselected = true
 
         -- Try to enable rotation steps (commonly needed for good packing)
         pcall(function() packer.rotation_z = 90.0 end) -- 90 degree increments
