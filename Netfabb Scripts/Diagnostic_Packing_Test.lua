@@ -190,19 +190,39 @@ local function main()
     -- end, true)
 
 
-    -- TEST 3b: Monte Carlo (Z-Only Rotation)
-    -- This addresses the "Script 9 works but rotates X/Y" issue.
-    run_test(target_tray, "Monte Carlo (Z-Only Rotation)", target_tray.packingid_montecarlo, function(p)
+    -- TEST 3b: Monte Carlo (Z-Only Rotation + Safe Margin)
+    -- This addresses "Script 9 works but rotates X/Y" AND "packing on no-build zone".
+    run_test(target_tray, "Monte Carlo (Z-Only + Margin)", target_tray.packingid_montecarlo, function(p)
         p.packing_quality = -1
         p.z_limit = 0.0
         p.start_from_current_positions = false
 
-        -- 0: Arbitrary, 1: ZOnly, 2: Forbidden
+        -- 1. Restrict Rotation (Z-Only)
         local set_ok = pcall(function() p.defaultpartrotation = 1 end)
         if not set_ok then
             log("  Notice: 'defaultpartrotation' property not supported on this packer.")
         else
             log("  Configured Monte Carlo for Z-Axis Rotation Only.")
+        end
+
+        -- 2. Apply Safe Margin (Avoid No-Build Zones)
+        -- Shrink packing volume by 10mm on all sides
+        local margin = 10.0
+        local ob_ok, ob = pcall(function() return p:getoutbox() end)
+        if ob_ok and ob then
+            ob.minx = ob.minx + margin
+            ob.miny = ob.miny + margin
+            ob.maxx = ob.maxx - margin
+            ob.maxy = ob.maxy - margin
+            -- Ensure we didn't invert the box (if tray is tiny)
+            if ob.maxx > ob.minx and ob.maxy > ob.miny then
+                p:setoutbox(ob)
+                log("  Applied packing margin of " .. margin .. "mm to avoid no-build zones.")
+            else
+                log("  Warning: Tray too small to apply " .. margin .. "mm margin.")
+            end
+        else
+            log("  Failed to retrieve/set packer outbox.")
         end
     end, true)
 
