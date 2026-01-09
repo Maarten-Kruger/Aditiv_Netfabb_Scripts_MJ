@@ -7,6 +7,69 @@ local function log(msg)
     end
 end
 
+-- Helper: Load Mesh Files
+local function loadfile(filename, ext)
+    local ext = string.lower(ext)
+    -- Based on Script6
+    if ext == "stl" then return system:loadstl(filename)
+    elseif ext == "3ds" then return system:load3ds(filename)
+    elseif ext == "3mf" then return system:load3mf(filename)
+    elseif ext == "amf" then return system:loadamf(filename)
+    elseif ext == "gts" then return system:loadgts(filename)
+    elseif ext == "ncm" then return system:loadncm(filename)
+    elseif ext == "obj" then return system:loadobj(filename)
+    elseif ext == "ply" then return system:loadply(filename)
+    elseif ext == "svx" then return system:loadvoxel(filename)
+    elseif ext == "vrml" then return system:loadvrml(filename)
+    elseif ext == "wrl" then return system:loadvrml(filename)
+    elseif ext == "x3d" then return system:loadx3d(filename)
+    elseif ext == "x3db" then return system:loadx3d(filename)
+    elseif ext == "zpr" then return system:loadzpr(filename)
+    end
+    return nil
+end
+
+-- Helper: Check CAD Extension
+local function is_cad_extension(ext)
+    local ext = string.lower(ext)
+    local cad_exts = {
+        ["3dm"] = true, ["3dxml"] = true, ["stp"] = true, ["step"] = true,
+        ["asm"] = true, ["catpart"] = true, ["cgr"] = true, ["dwg"] = true,
+        ["fbx"] = true, ["g"] = true, ["iam"] = true, ["igs"] = true, ["iges"] = true,
+        ["ipt"] = true, ["jt"] = true, ["model"] = true, ["neu"] = true,
+        ["par"] = true, ["prt"] = true, ["psm"] = true, ["rvt"] = true,
+        ["sat"] = true, ["skp"] = true, ["sldprt"] = true, ["wire"] = true,
+        ["x_b"] = true, ["x_t"] = true, ["xas"] = true, ["xpr"] = true
+    }
+    return cad_exts[ext]
+end
+
+-- Helper: Load CAD File
+local function loadcadfile(filename, root)
+    -- Use pcall for safety as createcadimport might fail or not exist
+    local ok, err = pcall(function()
+        if system.createcadimport then
+            local importer = system:createcadimport(0)
+            -- Parameters from Script6: 0.1 (tessellation?), 20, 20
+            local model = importer:loadmodel(filename, 0.1, 20, 20)
+            if model then
+                local ANumberOfModels = model.entitycount
+                for i = 0, ANumberOfModels - 1 do
+                    local mesh = model:createsinglemesh(i)
+                    if mesh then
+                        root:addmesh(mesh)
+                    end
+                end
+            end
+        else
+            log("CAD import not supported (system:createcadimport missing).")
+        end
+    end)
+    if not ok then
+        log("Error importing CAD file: " .. tostring(err))
+    end
+end
+
 -- 1. Prompt for Directory Path
 local import_path = ""
 local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path to Folder:", "Import Folder Path", "C:\\") end)
@@ -66,7 +129,8 @@ local workspaceID = trayHandler:getmachineidentifier(machine_name)
 
 if workspaceID == "" then
     log("Workspace instance not found for '" .. machine_name .. "'.")
-    system:messagebox("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.")
+    -- pcall message box
+    pcall(function() system:messagebox("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.") end)
     return
 end
 
@@ -74,7 +138,6 @@ log("Found Workspace ID: " .. workspaceID)
 
 
 -- 4. Batch Process Loop
-local file_extension = "stl" -- Could also be prompted or support multiple
 local xmlfilelist = system:getallfilesindirectory(import_path)
 
 if xmlfilelist then
@@ -89,14 +152,19 @@ if xmlfilelist then
         -- Extract extension and filename
         local path, file, ext = string.match(full_path, "(.-)([^\\/]-%.?([^%.\\/]*))$")
 
-        -- Check extension
-        if ext and string.lower(ext) == string.lower(file_extension) then
-            log("Processing file: " .. file)
+        -- Safe check for ext
+        if ext then
+            local lower_ext = string.lower(ext)
 
-            -- Load the mesh
-            local partMesh = system:loadstl(full_path)
+            -- Prepare clean name (remove extension)
+            local clean_name = file:match("(.+)%..+") or file
+
+            local processed = false
+            local partMesh = loadfile(full_path, lower_ext)
+            local isCAD = is_cad_extension(lower_ext)
 
             if partMesh then
+                log("Processing Mesh file: " .. file)
                 -- Create a new workspace (tray)
                 local newTray = trayHandler:addworkspace(workspaceID)
 
@@ -105,15 +173,11 @@ if xmlfilelist then
                     local partTrayMesh = newTray.root:addmesh(partMesh)
 
                     if partTrayMesh then
-                        partTrayMesh.name = file
+                        partTrayMesh.name = clean_name
 
                         -- Manual Centering Logic
-                        -- We use manual translation because the packer sometimes fails to place parts inside the build volume.
-
-                        -- Get machine dimensions from the new tray
                         local mx = newTray.machinesize_x or 100
                         local my = newTray.machinesize_y or 100
-                        local mz = newTray.machinesize_z or 100
 
                         -- Get Part Bounding Box
                         local outbox = partTrayMesh.outbox
@@ -127,26 +191,89 @@ if xmlfilelist then
                             local cy = (outbox.miny + outbox.maxy) / 2.0
                             local min_z = outbox.minz
 
-                            -- Calculate translation to center on XY and sit on Z=0
                             local tx = (mx / 2.0) - cx
                             local ty = (my / 2.0) - cy
                             local tz = -min_z
 
-                            -- Apply translation
                             partTrayMesh:translate(tx, ty, tz)
-                            log("Added and centered: " .. file .. " at (" .. tx .. ", " .. ty .. ", " .. tz .. ")")
+                            log("Added and centered: " .. clean_name)
                         else
-                            log("Added " .. file .. " but could not center (no bounding box info).")
+                            log("Added " .. clean_name .. " but could not center (no bounding box).")
                         end
-
+                        processed = true
                     else
                         log("Loaded but failed to add to tray: " .. file)
                     end
                 else
-                    log("Failed to create new workspace for file: " .. file)
+                     log("Failed to create new workspace for file: " .. file)
                 end
-            else
-                log("Failed to load: " .. file)
+
+            elseif isCAD then
+                log("Processing CAD file: " .. file)
+                -- Create a new workspace (tray)
+                local newTray = trayHandler:addworkspace(workspaceID)
+
+                if newTray then
+                    -- Capture mesh count before
+                    local initial_count = newTray.root.meshcount
+
+                    -- Import CAD
+                    loadcadfile(full_path, newTray.root)
+
+                    local final_count = newTray.root.meshcount
+                    local added_count = final_count - initial_count
+
+                    if added_count > 0 then
+                        log("Imported " .. added_count .. " meshes from CAD file.")
+
+                        -- Iterate over new meshes to rename
+                        for j = initial_count, final_count - 1 do
+                             local tm = nil
+                             -- Try getmesh first (standard for TrayRoot)
+                             pcall(function() tm = newTray.root:getmesh(j) end)
+
+                             if not tm then
+                                 -- Fallback to getchild
+                                 pcall(function() tm = newTray.root:getchild(j) end)
+                             end
+
+                             if tm then
+                                 -- Rename
+                                 if added_count == 1 then
+                                     tm.name = clean_name
+                                 else
+                                     tm.name = clean_name .. " (" .. (j - initial_count + 1) .. ")"
+                                 end
+
+                                 -- Center if single part
+                                 if added_count == 1 then
+                                     local mx = newTray.machinesize_x or 100
+                                     local my = newTray.machinesize_y or 100
+                                     local outbox = tm.outbox
+                                     if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
+                                     if outbox then
+                                         local cx = (outbox.minx + outbox.maxx) / 2.0
+                                         local cy = (outbox.miny + outbox.maxy) / 2.0
+                                         local min_z = outbox.minz
+                                         local tx = (mx / 2.0) - cx
+                                         local ty = (my / 2.0) - cy
+                                         local tz = -min_z
+                                         tm:translate(tx, ty, tz)
+                                     end
+                                 end
+                             end
+                        end
+                        processed = true
+                    else
+                        log("CAD import yielded no meshes for: " .. file)
+                    end
+                else
+                    log("Failed to create workspace for CAD file: " .. file)
+                end
+            end
+
+            if processed then
+               -- Check for GUI update
             end
         end
     end
