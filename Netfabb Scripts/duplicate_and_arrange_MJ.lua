@@ -4,24 +4,32 @@
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
-local save_path = "C:\\Users\\Maarten\\OneDrive\\Desktop" -- Default Save Path
+local save_path = ""
 
 -- 1. Popup for Filepath
-if system and system.showdirectoryselectdialog then
-    local selected = system:showdirectoryselectdialog("Select Save Folder", save_path, true)
-    if selected and selected ~= "" then
-        save_path = selected
-    end
+local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path:", "Import Path", "C:\\") end)
+
+if ok_input and input_path and input_path ~= "" then
+    save_path = input_path
+else
+    log("No directory selected. Exiting.")
+    return
 end
 
 -- Sanitize path (remove quotes if present)
 save_path = string.gsub(save_path, '"', '')
--- Ensure no trailing slash for consistency (we add it later)
-if string.sub(save_path, -1) == "\\" then
-    save_path = string.sub(save_path, 1, -2)
+
+if save_path == "" then
+     log("Invalid path (empty after cleanup).")
+     return
 end
 
-local log_file_path = save_path .. "\\duplicate_log.txt"
+-- Ensure trailing backslash
+if string.sub(save_path, -1) ~= "\\" then
+    save_path = save_path .. "\\"
+end
+
+local log_file_path = save_path .. "duplicate_log.txt"
 
 -- Setup Logging using system:logtofile
 if system and system.logtofile then
@@ -227,56 +235,6 @@ local function process_tray(current_tray, tray_name)
         log("No duplicates needed (Tray full or part too big).")
     end
 
-    -- 8. Export Logic
-    -- Strategy: Export individual parts.
-    -- For each part, export:
-    -- A) The part mesh (baked supports, if any) -> .3mf
-    -- B) The support mesh (separate) -> _support.3mf (If possible to generate)
-
-    log("Exporting parts...")
-    local tray_dir = save_path .. "\\" .. tray_name .. "_Parts"
-    if system.createdirectory then system:createdirectory(tray_dir) end
-
-    -- Iterate all meshes in tray
-    for i = 0, root.meshcount - 1 do
-        local tm = root:getmesh(i)
-
-        -- Export 1: The standard part (which might have baked supports from duplication)
-        -- If it's the template, it might have parametric supports.
-        -- If it's a duplicate, it's a repaired mesh (so supports are baked/merged).
-
-        local part_path = tray_dir .. "\\" .. tm.name .. ".3mf"
-        local lm = tm.mesh
-        if lm then
-            local ok, err = pcall(function() lm:saveto3mf(part_path) end)
-            if not ok then
-                 log("Failed to export " .. tm.name .. ": " .. tostring(err))
-            end
-        end
-
-        -- Export 2: Separate Supports (for Template or if possible)
-        -- If the part has 'createsupportedmesh', we try to extract supports.
-        -- Note: The duplicates are just meshes now (repaired), so createsupportedmesh might not yield anything unless 'hassupport' is true.
-        -- But duplicates were added as MESHES, so they likely don't have parametric supports anymore.
-        -- The Template (index 0) might.
-
-        if tm.hassupport then
-            local support_path = tray_dir .. "\\" .. tm.name .. "_support.3mf"
-            local ok_sup, res_sup = pcall(function()
-                -- Generate support-only mesh
-                return tm:createsupportedmesh(false, true, true, 0.0)
-            end)
-
-            if ok_sup and res_sup then
-                local sm = res_sup.mesh or res_sup -- Handle TrayMesh or LuaMesh
-                local ok_save, err_save = pcall(function() sm:saveto3mf(support_path) end)
-                if ok_save then
-                    log("Exported separate supports for " .. tm.name)
-                end
-            end
-        end
-    end
-    log("Parts exported to " .. tray_dir)
 end
 
 -- Main Execution Logic
