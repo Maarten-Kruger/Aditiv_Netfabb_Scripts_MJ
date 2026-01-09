@@ -1,5 +1,5 @@
 -- duplicate_and_arrange_MJ.lua
--- Duplicates a part in every tray to fill the tray.
+-- Duplicates a part in every tray to fill the tray and arranges them.
 -- Modified by Jules
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
@@ -12,7 +12,8 @@ local ok_input, input_path = pcall(function() return system:inputdlg("Enter Dire
 if ok_input and input_path and input_path ~= "" then
     save_path = input_path
 else
-    log("No directory selected. Exiting.")
+    -- Fallback or exit?
+    if system and system.log then system:log("No directory selected. Exiting.") end
     return
 end
 
@@ -20,7 +21,7 @@ end
 save_path = string.gsub(save_path, '"', '')
 
 if save_path == "" then
-     log("Invalid path (empty after cleanup).")
+     if system and system.log then system:log("Invalid path (empty after cleanup).") end
      return
 end
 
@@ -43,7 +44,6 @@ local function log(msg)
     if system and system.log then
         system:log(msg)
     end
-    -- Fallback print
     print(msg)
 end
 
@@ -51,9 +51,25 @@ log("--- Script Started ---")
 log("Save Path: " .. save_path)
 log("Log file location: " .. log_file_path)
 
+-- Initialize Progress Bar
+if system and system.showprogressdlgcancancel then
+    system:showprogressdlgcancancel(true)
+end
+
+local function update_progress(percent, message)
+    if system and system.setprogresscancancel then
+        system:setprogresscancancel(percent, message, false)
+        if system:progresscancelled() then
+            log("Script cancelled by user.")
+            error("Cancelled")
+        end
+    end
+end
+
 -- Function to process a single tray
 local function process_tray(current_tray, tray_name)
     log("--- Processing " .. tray_name .. " ---")
+    update_progress(0, "Processing " .. tray_name .. ": Analyzing...")
 
     if not current_tray or not current_tray.root then
         log("Error: Tray root not available for " .. tray_name)
@@ -66,8 +82,8 @@ local function process_tray(current_tray, tray_name)
     -- Keep the first mesh (index 0) as template, delete others.
     if root.meshcount > 1 then
         log("Cleaning up existing duplicates...")
+        update_progress(10, "Processing " .. tray_name .. ": Cleaning up...")
         local to_remove = {}
-        -- Iterate backwards to avoid index shifting issues, but safer to collect first
         for i = 1, root.meshcount - 1 do
             table.insert(to_remove, root:getmesh(i))
         end
@@ -77,7 +93,7 @@ local function process_tray(current_tray, tray_name)
         log("Removed " .. #to_remove .. " existing parts.")
     end
 
-    -- 1. Find a template part (must exist in tray)
+    -- 1. Find a template part
     local template_part = nil
     if root.meshcount > 0 then
         template_part = root:getmesh(0)
@@ -94,24 +110,18 @@ local function process_tray(current_tray, tray_name)
     local part_area = 0.0
     local luamesh = template_part.mesh
 
-    -- Try mesh:outboxbasearea()
     local success, area = pcall(function() return luamesh:outboxbasearea() end)
-
     if success and area and area > 0 then
         part_area = area
         log("Part Area (from outboxbasearea): " .. part_area)
     else
-        -- Fallback: Calculate from World Outbox
         local ob = nil
         pcall(function() ob = template_part.outbox end)
-
         if ob then
             local width = ob.maxx - ob.minx
             local depth = ob.maxy - ob.miny
             part_area = width * depth
             log("Part Area (calculated from outbox): " .. part_area)
-        else
-            log("Error: Could not retrieve bounding box.")
         end
     end
 
@@ -125,9 +135,7 @@ local function process_tray(current_tray, tray_name)
     local mx = current_tray.machinesize_x
     local my = current_tray.machinesize_y
 
-    -- Check for cylinder/box
     if is_cylinder then
-        -- Assuming mx is diameter
         local radius = mx / 2.0
         tray_area = math.pi * radius * radius
         log("Tray Area (Cylinder, Diameter=" .. mx .. "): " .. tray_area)
@@ -145,23 +153,17 @@ local function process_tray(current_tray, tray_name)
     log("Max Parts: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
-    -- 6. Duplicate the part (using createsupportedmesh to preserve supports)
+    -- 6. Duplicate the part
     if duplicates_needed > 0 then
         log("Duplicating part via createsupportedmesh...")
+        update_progress(20, "Processing " .. tray_name .. ": Duplicating " .. duplicates_needed .. " parts...")
 
-        -- Determine the base name
         local base_name = template_part.name
-        -- Remove common copy suffixes " (1)", " (2)", etc.
         base_name = string.gsub(base_name, "%s*%(%d+%)", "")
-        -- Remove "_copy"
         base_name = string.gsub(base_name, "_copy", "")
-        -- Remove file extension (e.g. .stl) if present at end
         base_name = string.gsub(base_name, "%.%w+$", "")
-        -- Trim trailing whitespace
         base_name = string.gsub(base_name, "%s+$", "")
 
-        -- Generate Master Geometry with baked supports
-        -- createsupportedmesh(mergepart, mergeopensupport, mergeclosedsupport, openthickening)
         local master_geometry = nil
         if template_part.createsupportedmesh then
             local success_sup, res_sup = pcall(function()
@@ -169,39 +171,22 @@ local function process_tray(current_tray, tray_name)
             end)
 
             if success_sup and res_sup then
-                -- Check for mesh property safely
                 local has_mesh_prop = false
-                pcall(function()
-                    if res_sup.mesh then has_mesh_prop = true end
-                end)
+                pcall(function() if res_sup.mesh then has_mesh_prop = true end end)
 
                 if has_mesh_prop then
                      master_geometry = res_sup.mesh
-                     log("Successfully generated supported mesh geometry (TrayMesh).")
                 else
-                     -- Maybe it IS a LuaMesh?
                      local is_luamesh = false
                      pcall(function() if res_sup.facecount then is_luamesh = true end end)
-
-                     if is_luamesh then
-                         master_geometry = res_sup
-                         log("Successfully generated supported mesh geometry (LuaMesh).")
-                     else
-                         log("Error: createsupportedmesh returned unknown object type.")
-                     end
+                     if is_luamesh then master_geometry = res_sup end
                 end
-            else
-                log("Error: createsupportedmesh call failed: " .. tostring(res_sup))
             end
-        else
-            log("Error: createsupportedmesh method not available on this version.")
         end
 
         if master_geometry then
-             -- Add copies
              local newly_added = {}
              for i = 1, duplicates_needed do
-                 -- Add the mesh to the tray
                  local new_traymesh = root:addmesh(master_geometry)
                  new_traymesh.name = base_name .. " (" .. i .. ")"
                  table.insert(newly_added, new_traymesh)
@@ -209,49 +194,88 @@ local function process_tray(current_tray, tray_name)
              log("Added " .. duplicates_needed .. " supported duplicates.")
 
              -- 7. Full Repair on Duplicates
-             log("Running full-on repair (repairextended) on duplicates...")
+             log("Running repair (repairextended) on duplicates...")
+             update_progress(50, "Processing " .. tray_name .. ": Repairing duplicates...")
+
              for i, m in ipairs(newly_added) do
                  local m_name = m.name
-                 local m_mesh = m.mesh -- The LuaMesh
+                 local m_mesh = m.mesh
                  if m_mesh then
                      local copy_mesh = m_mesh:dupe()
                      copy_mesh:repairextended()
-
-                     -- Replace in tray
                      root:removemesh(m)
                      local repaired_tm = root:addmesh(copy_mesh)
                      repaired_tm.name = m_name
                  end
-                 -- Progress logging
-                 if i % 10 == 0 then log("Repaired " .. i .. "/" .. #newly_added) end
+                 -- Sub-progress
+                 if i % 5 == 0 then
+                     local pct = 50 + (i / #newly_added) * 30 -- 50% to 80%
+                     update_progress(pct, "Processing " .. tray_name .. ": Repairing part " .. i .. "/" .. #newly_added)
+                 end
              end
              log("Repair complete.")
-
         else
              log("Aborting duplication due to failure in generating master mesh.")
         end
-
     else
-        log("No duplicates needed (Tray full or part too big).")
+        log("No duplicates needed.")
+    end
+
+    -- 8. Pack the Tray
+    log("Arranging parts in " .. tray_name .. "...")
+    update_progress(90, "Processing " .. tray_name .. ": Packing...")
+
+    if current_tray.createpacker then
+        local p_ok, packer = pcall(function() return current_tray:createpacker(current_tray.packingid_trueshape) end)
+        if p_ok and packer then
+            packer.packing_2d = true
+            packer.minimaldistance = 2.0
+
+            local pack_ok, pack_res = pcall(function() return packer:pack() end)
+            if pack_ok then
+                log("Packing complete.")
+            else
+                log("Packing failed: " .. tostring(pack_res))
+            end
+        else
+            log("Failed to create TrueShape packer.")
+        end
+    else
+        log("createpacker method not available.")
     end
 
 end
 
 -- Main Execution Logic
+local success_main, err_main = pcall(function()
+    if _G.netfabbtrayhandler then
+        log("Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
 
-if _G.netfabbtrayhandler then
-    log("Using 'netfabbtrayhandler'. Tray Count: " .. netfabbtrayhandler.traycount)
+        local count = netfabbtrayhandler.traycount
+        for i = 0, count - 1 do
+            local t = netfabbtrayhandler:gettray(i)
+            if t then
+                process_tray(t, "Tray " .. (i + 1))
+            else
+                log("Error: Failed to retrieve Tray " .. (i + 1))
+            end
 
-    for i = 0, netfabbtrayhandler.traycount - 1 do
-        local t = netfabbtrayhandler:gettray(i)
-        if t then
-            process_tray(t, "Tray " .. (i + 1))
-        else
-            log("Error: Failed to retrieve Tray " .. (i + 1))
+            -- Update global progress implicitly by the loop, or explicit reset
+            update_progress((i + 1) / count * 100, "Completed Tray " .. (i + 1))
         end
+    else
+        log("Error: 'netfabbtrayhandler' is not available.")
     end
-else
-    log("Error: 'netfabbtrayhandler' is not available.")
+end)
+
+if not success_main then
+    log("Script Error: " .. tostring(err_main))
+    -- If cancelled, we already logged it, but this catches other errors
+end
+
+-- Cleanup Progress Bar
+if system and system.hideprogressdlgcancancel then
+    system:hideprogressdlgcancancel()
 end
 
 -- Update GUI
