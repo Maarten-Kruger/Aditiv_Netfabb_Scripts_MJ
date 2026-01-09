@@ -4,7 +4,24 @@
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
-local log_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\duplicate_log.txt"
+local save_path = "C:\\Users\\Maarten\\OneDrive\\Desktop" -- Default Save Path
+
+-- 1. Popup for Filepath
+if system and system.showdirectoryselectdialog then
+    local selected = system:showdirectoryselectdialog("Select Save Folder", save_path, true)
+    if selected and selected ~= "" then
+        save_path = selected
+    end
+end
+
+-- Sanitize path (remove quotes if present)
+save_path = string.gsub(save_path, '"', '')
+-- Ensure no trailing slash for consistency (we add it later)
+if string.sub(save_path, -1) == "\\" then
+    save_path = string.sub(save_path, 1, -2)
+end
+
+local log_file_path = save_path .. "\\duplicate_log.txt"
 
 -- Setup Logging using system:logtofile
 if system and system.logtofile then
@@ -23,6 +40,7 @@ local function log(msg)
 end
 
 log("--- Script Started ---")
+log("Save Path: " .. save_path)
 log("Log file location: " .. log_file_path)
 
 -- Function to process a single tray
@@ -35,6 +53,21 @@ local function process_tray(current_tray, tray_name)
     end
 
     local root = current_tray.root
+
+    -- 2. Cleanup / Overwrite Logic
+    -- Keep the first mesh (index 0) as template, delete others.
+    if root.meshcount > 1 then
+        log("Cleaning up existing duplicates...")
+        local to_remove = {}
+        -- Iterate backwards to avoid index shifting issues, but safer to collect first
+        for i = 1, root.meshcount - 1 do
+            table.insert(to_remove, root:getmesh(i))
+        end
+        for _, m in ipairs(to_remove) do
+            root:removemesh(m)
+        end
+        log("Removed " .. #to_remove .. " existing parts.")
+    end
 
     -- 1. Find a template part (must exist in tray)
     local template_part = nil
@@ -49,7 +82,7 @@ local function process_tray(current_tray, tray_name)
 
     log("Template Part: " .. template_part.name)
 
-    -- 2. Calculate Part Area
+    -- 3. Calculate Part Area
     local part_area = 0.0
     local luamesh = template_part.mesh
 
@@ -79,7 +112,7 @@ local function process_tray(current_tray, tray_name)
         return
     end
 
-    -- 3. Calculate Tray Area
+    -- 4. Calculate Tray Area
     local tray_area = 0.0
     local mx = current_tray.machinesize_x
     local my = current_tray.machinesize_y
@@ -95,7 +128,7 @@ local function process_tray(current_tray, tray_name)
         log("Tray Area (Box, " .. mx .. " x " .. my .. "): " .. tray_area)
     end
 
-    -- 4. Calculate Max Parts
+    -- 5. Calculate Max Parts
     local target_fill_area = tray_area * tray_percentage
     local max_count = math.floor(target_fill_area / part_area)
     local duplicates_needed = max_count - 1
@@ -104,7 +137,7 @@ local function process_tray(current_tray, tray_name)
     log("Max Parts: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
-    -- 5. Duplicate the part (using createsupportedmesh to preserve supports)
+    -- 6. Duplicate the part (using createsupportedmesh to preserve supports)
     if duplicates_needed > 0 then
         log("Duplicating part via createsupportedmesh...")
 
@@ -158,13 +191,34 @@ local function process_tray(current_tray, tray_name)
 
         if master_geometry then
              -- Add copies
+             local newly_added = {}
              for i = 1, duplicates_needed do
                  -- Add the mesh to the tray
                  local new_traymesh = root:addmesh(master_geometry)
                  new_traymesh.name = base_name .. " (" .. i .. ")"
-                 -- log("Created copy " .. i)
+                 table.insert(newly_added, new_traymesh)
              end
              log("Added " .. duplicates_needed .. " supported duplicates.")
+
+             -- 7. Full Repair on Duplicates
+             log("Running full-on repair (repairextended) on duplicates...")
+             for i, m in ipairs(newly_added) do
+                 local m_name = m.name
+                 local m_mesh = m.mesh -- The LuaMesh
+                 if m_mesh then
+                     local copy_mesh = m_mesh:dupe()
+                     copy_mesh:repairextended()
+
+                     -- Replace in tray
+                     root:removemesh(m)
+                     local repaired_tm = root:addmesh(copy_mesh)
+                     repaired_tm.name = m_name
+                 end
+                 -- Progress logging
+                 if i % 10 == 0 then log("Repaired " .. i .. "/" .. #newly_added) end
+             end
+             log("Repair complete.")
+
         else
              log("Aborting duplication due to failure in generating master mesh.")
         end
@@ -172,6 +226,57 @@ local function process_tray(current_tray, tray_name)
     else
         log("No duplicates needed (Tray full or part too big).")
     end
+
+    -- 8. Export Logic
+    -- Strategy: Export individual parts.
+    -- For each part, export:
+    -- A) The part mesh (baked supports, if any) -> .3mf
+    -- B) The support mesh (separate) -> _support.3mf (If possible to generate)
+
+    log("Exporting parts...")
+    local tray_dir = save_path .. "\\" .. tray_name .. "_Parts"
+    if system.createdirectory then system:createdirectory(tray_dir) end
+
+    -- Iterate all meshes in tray
+    for i = 0, root.meshcount - 1 do
+        local tm = root:getmesh(i)
+
+        -- Export 1: The standard part (which might have baked supports from duplication)
+        -- If it's the template, it might have parametric supports.
+        -- If it's a duplicate, it's a repaired mesh (so supports are baked/merged).
+
+        local part_path = tray_dir .. "\\" .. tm.name .. ".3mf"
+        local lm = tm.mesh
+        if lm then
+            local ok, err = pcall(function() lm:saveto3mf(part_path) end)
+            if not ok then
+                 log("Failed to export " .. tm.name .. ": " .. tostring(err))
+            end
+        end
+
+        -- Export 2: Separate Supports (for Template or if possible)
+        -- If the part has 'createsupportedmesh', we try to extract supports.
+        -- Note: The duplicates are just meshes now (repaired), so createsupportedmesh might not yield anything unless 'hassupport' is true.
+        -- But duplicates were added as MESHES, so they likely don't have parametric supports anymore.
+        -- The Template (index 0) might.
+
+        if tm.hassupport then
+            local support_path = tray_dir .. "\\" .. tm.name .. "_support.3mf"
+            local ok_sup, res_sup = pcall(function()
+                -- Generate support-only mesh
+                return tm:createsupportedmesh(false, true, true, 0.0)
+            end)
+
+            if ok_sup and res_sup then
+                local sm = res_sup.mesh or res_sup -- Handle TrayMesh or LuaMesh
+                local ok_save, err_save = pcall(function() sm:saveto3mf(support_path) end)
+                if ok_save then
+                    log("Exported separate supports for " .. tm.name)
+                end
+            end
+        end
+    end
+    log("Parts exported to " .. tray_dir)
 end
 
 -- Main Execution Logic
