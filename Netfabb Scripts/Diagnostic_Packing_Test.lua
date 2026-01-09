@@ -1,6 +1,15 @@
 -- Diagnostic_Packing_Test.lua
--- Tests various packing methods to diagnose why parts are not moving.
--- Saves a log file to a user-specified directory.
+-- Diagnostic script to test specific packing algorithms.
+-- Allows switching between methods to verify physical part movement.
+
+-- ==============================================================================
+-- CONFIGURATION
+-- Select which packer to test:
+-- 0: TrueShape 2D
+-- 1: Monte Carlo (Z-Axis Rotation Only + Safety Margin)
+-- 2: Bounding Box (Outbox Packer)
+local PACKER_OPTION = 1
+-- ==============================================================================
 
 -- Standard Logging Setup
 local function log(msg)
@@ -32,6 +41,7 @@ end
 
 log("--- Diagnostic Packing Test Started ---")
 log("Log file: " .. log_file_path)
+log("Selected Packer Option: " .. tostring(PACKER_OPTION))
 
 -- Helper: Check Matrix Equality
 local function matrix_equals(m1, m2)
@@ -52,30 +62,14 @@ local function get_tray_state(tray)
     if not tray or not tray.root then return state end
     for i = 0, tray.root.meshcount - 1 do
         local tm = tray.root:getmesh(i)
-        -- matrix property returns a copy, but let's be safe
         local m = tm.matrix
         state[i] = m
     end
     return state
 end
 
--- Helper: Restore Tray State
-local function restore_tray_state(tray, state)
-    if not tray or not tray.root then return end
-    for i = 0, tray.root.meshcount - 1 do
-        local tm = tray.root:getmesh(i)
-        if state[i] then
-            tm:setmatrix(state[i])
-        end
-    end
-    -- Trigger update if possible
-    if application and application.triggerdesktopevent then
-        application:triggerdesktopevent('updateparts')
-    end
-end
-
 -- Test Runner Function
-local function run_test(tray, test_name, packer_id, setup_func, keep_changes)
+local function run_test(tray, test_name, packer_id, setup_func)
     log("TEST: " .. test_name)
 
     -- Check for locked parts
@@ -97,7 +91,6 @@ local function run_test(tray, test_name, packer_id, setup_func, keep_changes)
     local p_ok, packer = pcall(function() return tray:createpacker(packer_id) end)
     if not p_ok or not packer then
         log("  FAILED to create packer (ID: " .. tostring(packer_id) .. ")")
-        log("--------------------------------------------------")
         return
     end
 
@@ -131,16 +124,10 @@ local function run_test(tray, test_name, packer_id, setup_func, keep_changes)
     end
 
     log("  Result: " .. moved_count .. " of " .. mesh_count .. " parts moved.")
+    log("  Keeping changes for visual inspection.")
 
-    -- Restore
-    if keep_changes then
-        log("  Keeping changes for visual inspection.")
-        if application and application.triggerdesktopevent then
-            application:triggerdesktopevent('updateparts')
-        end
-    else
-        restore_tray_state(tray, initial_state)
-        log("  State restored.")
+    if application and application.triggerdesktopevent then
+        application:triggerdesktopevent('updateparts')
     end
     log("--------------------------------------------------")
 end
@@ -151,8 +138,6 @@ local function main()
         log("Error: netfabbtrayhandler not found.")
         return
     end
-
-    log("Tray Count: " .. netfabbtrayhandler.traycount)
 
     local target_tray = nil
     for i = 0, netfabbtrayhandler.traycount - 1 do
@@ -172,82 +157,55 @@ local function main()
     -- Log Tray Info
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
 
-    -- TEST 1: TrueShape 2D (Centered / Sweetspot)
-    -- Tries to pack around the center of the tray (useful for cylinders).
-    -- run_test(target_tray, "TrueShape 2D (Centered)", target_tray.packingid_trueshape, function(p)
-    --     p.packing_2d = true
-    --     p.minimaldistance = 2.0
+    if PACKER_OPTION == 0 then
+        -- TrueShape 2D
+        run_test(target_tray, "TrueShape 2D", target_tray.packingid_trueshape, function(p)
+            p.packing_2d = true
+            p.minimaldistance = 2.0
+            -- Note: TrueShape often ignores 'z_limit' or 'outbox' manipulation for 2D packing
+        end)
 
-    --     -- Attempt to center packing (Fix for Cylinder/No-Build Zones)
-    --     local cx = target_tray.machinesize_x / 2.0
-    --     local cy = target_tray.machinesize_y / 2.0
-    --     pcall(function()
-    --         p.part_placement = p.place_sweetspot
-    --         p.sweetspot_x = cx
-    --         p.sweetspot_y = cy
-    --         log("  Configured TrueShape Sweetspot: (" .. cx .. ", " .. cy .. ")")
-    --     end)
-    -- end, true)
+    elseif PACKER_OPTION == 1 then
+        -- Monte Carlo
+        run_test(target_tray, "Monte Carlo (Z-Only + Margin)", target_tray.packingid_montecarlo, function(p)
+            p.packing_quality = -1
+            p.z_limit = 0.0
+            p.start_from_current_positions = false
 
-
-    -- TEST 3b: Monte Carlo (Z-Only Rotation + Safe Margin)
-    -- This addresses "Script 9 works but rotates X/Y" AND "packing on no-build zone".
-    run_test(target_tray, "Monte Carlo (Z-Only + Margin)", target_tray.packingid_montecarlo, function(p)
-        p.packing_quality = -1
-        p.z_limit = 0.0
-        p.start_from_current_positions = false
-
-        -- 1. Restrict Rotation (Z-Only)
-        local set_ok = pcall(function() p.defaultpartrotation = 1 end)
-        if not set_ok then
-            log("  Notice: 'defaultpartrotation' property not supported on this packer.")
-        else
-            log("  Configured Monte Carlo for Z-Axis Rotation Only.")
-        end
-
-        -- 2. Apply Safe Margin (Avoid No-Build Zones)
-        -- Shrink packing volume by 10mm on all sides
-        local margin = 10.0
-        local ob_ok, ob = pcall(function() return p:getoutbox() end)
-        if ob_ok and ob then
-            ob.minx = ob.minx + margin
-            ob.miny = ob.miny + margin
-            ob.maxx = ob.maxx - margin
-            ob.maxy = ob.maxy - margin
-            -- Ensure we didn't invert the box (if tray is tiny)
-            if ob.maxx > ob.minx and ob.maxy > ob.miny then
-                p:setoutbox(ob)
-                log("  Applied packing margin of " .. margin .. "mm to avoid no-build zones.")
+            -- Restrict to Z-Axis Rotation Only
+            local set_ok = pcall(function() p.defaultpartrotation = 1 end)
+            if not set_ok then
+                log("  Notice: 'defaultpartrotation' property not supported on this packer.")
             else
-                log("  Warning: Tray too small to apply " .. margin .. "mm margin.")
+                log("  Configured Monte Carlo for Z-Axis Rotation Only.")
             end
-        else
-            log("  Failed to retrieve/set packer outbox.")
-        end
-    end, true)
 
-    -- TEST 3c: Monte Carlo (No Rotation)
-    -- run_test(target_tray, "Monte Carlo (No Rotation)", target_tray.packingid_montecarlo, function(p)
-    --     p.packing_quality = -1
-    --     p.z_limit = 0.0
-    --     p.start_from_current_positions = false
-    --     pcall(function() p.defaultpartrotation = 2 end) -- 2: Forbidden
-    -- end)
+            -- Apply Safe Margin (10mm)
+            local margin = 10.0
+            local ob_ok, ob = pcall(function() return p:getoutbox() end)
+            if ob_ok and ob then
+                ob.minx = ob.minx + margin
+                ob.miny = ob.miny + margin
+                ob.maxx = ob.maxx - margin
+                ob.maxy = ob.maxy - margin
+                if ob.maxx > ob.minx and ob.maxy > ob.miny then
+                    p:setoutbox(ob)
+                    log("  Applied packing margin of " .. margin .. "mm.")
+                else
+                    log("  Warning: Tray too small for margin.")
+                end
+            end
+        end)
 
-    -- TEST 4: Scanline 2D
-    -- run_test(target_tray, "Scanline 2D", target_tray.packingid_2d, function(p)
-    --     p.rastersize = 1
-    --     p.anglecount = 4
-    --     p.placeoutside = true
-    --     p.packonlyselected = false
-    --     p.borderspacingxy = 2
-    -- end)
-
-    -- TEST 5: Outbox Packer
-    -- run_test(target_tray, "Outbox Packer", target_tray.packingid_outbox, function(p)
-    --     p.minimaldistance = 2.0
-    --     p.pack2D = false
-    -- end)
+    elseif PACKER_OPTION == 2 then
+        -- Bounding Box (Outbox Packer)
+        run_test(target_tray, "Bounding Box", target_tray.packingid_outbox, function(p)
+            p.minimaldistance = 2.0
+            p.pack2D = false
+        end)
+    else
+        log("Invalid PACKER_OPTION selected.")
+    end
 
     log("--- Diagnostic Complete ---")
     if system and system.messagedlg then
