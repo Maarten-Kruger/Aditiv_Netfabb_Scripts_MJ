@@ -1,7 +1,7 @@
 -- Diagnostics_Probe.lua
 -- Probes for properties on Tray, TrayMesh, and LuaMesh objects.
 -- Deep dive into Support objects and Tray Parameters.
--- Fixed Lua 5.1 syntax error regarding varargs in closures.
+-- Fixed invalid property access errors.
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
@@ -37,8 +37,6 @@ function safe_get(obj, key)
     if ok then return val, "OK" else return nil, err end
 end
 
--- Simplified safe_call without varargs to avoid Lua 5.1 closure issues
--- We only use this for 0-argument getters anyway.
 function safe_call(obj, method_name)
     if not obj[method_name] then return nil, "Method not found" end
     local val = nil
@@ -67,7 +65,7 @@ function dump_meta(obj, obj_name)
     log("-------------------------------------------")
 end
 
-log("--- Starting Deep Probe ---")
+log("--- Starting Deep Probe v3 ---")
 log("Log Path: " .. log_path)
 
 -- 1. Determine Active Tray
@@ -76,7 +74,6 @@ if _G.tray then
     tray = _G.tray
     log("Using _G.tray")
 elseif _G.netfabbtrayhandler then
-    -- Find first populated tray
     for i = 0, netfabbtrayhandler.traycount - 1 do
         local t = netfabbtrayhandler:gettray(i)
         if t and t.root and t.root.meshcount > 0 then
@@ -93,53 +90,77 @@ end
 
 if tray then
     -------------------------------------------------------------------------
-    -- TRAY PROBE
+    -- TRAY PROBE (New Strategies)
     -------------------------------------------------------------------------
     log("\n=== TRAY DATA PROBE ===")
 
-    -- List of candidates for Build Time and Layer Thickness
-    local tray_candidates = {
-        "buildtime", "totalbuildtime", "estimatedbuildtime", "timeestimate",
-        "layerthickness", "thickness", "sliceheight", "layerheight",
-        "zstep", "z_step", "layer_thickness"
-    }
-
-    for _, key in ipairs(tray_candidates) do
-        local val, status = safe_get(tray, key)
-        log(string.format("Property '%s': %s (Status: %s)", key, tostring(val), status))
+    -- Strategy 1: Project Level (fabbproject)
+    if _G.fabbproject then
+        log("fabbproject available.")
+        -- Does project have build time?
+        local proj_props = {"buildtime", "totalbuildtime"}
+        for _, key in ipairs(proj_props) do
+            local val, status = safe_get(fabbproject, key)
+            if val then log("fabbproject." .. key .. ": " .. tostring(val)) end
+        end
+    else
+        log("fabbproject NOT available.")
     end
 
-    -- Try accessing internal tables/settings
-    local settings_containers = {"parameters", "settings", "machine", "config"}
-    for _, key in ipairs(settings_containers) do
-        local val, status = safe_get(tray, key)
-        if val then
-             log(string.format("Container '%s' found (%s). Probing...", key, type(val)))
-             -- If it's a table/userdata, try to find our keys inside it
-             if type(val) == "table" or type(val) == "userdata" then
-                 for _, subkey in ipairs(tray_candidates) do
-                     local subval = nil
-                     pcall(function() subval = val[subkey] end)
-                     if subval then
-                         log(string.format("  -> Found '%s' inside '%s': %s", subkey, key, tostring(subval)))
-                     end
-                 end
-             end
-        else
-             log(string.format("Container '%s': %s", key, tostring(val)))
+    -- Strategy 2: Slice Information
+    -- Build time often comes from slice data.
+    local slice = nil
+    local s_val, s_stat = safe_get(tray, "slice")
+    if s_val then
+        log("Tray has .slice property (" .. type(s_val) .. ")")
+        slice = s_val
+    else
+        -- Try getslice()
+        local s2_val, s2_stat = safe_call(tray, "getslice")
+        if s2_val then
+             log("Tray:getslice() returned (" .. type(s2_val) .. ")")
+             slice = s2_val
         end
     end
 
+    if slice then
+        dump_meta(slice, "SliceObject")
+        local slice_props = {"buildtime", "layerthickness", "zstep", "layercount"}
+        for _, key in ipairs(slice_props) do
+            local val, status = safe_get(slice, key)
+             log("Slice." .. key .. ": " .. tostring(val) .. " (" .. status .. ")")
+        end
+    else
+        log("No slice object found on tray.")
+    end
+
+    -- Strategy 3: Machine / Build Room Parameters
+    -- Sometimes it's in tray.machine_type or similar
+    local m_props = {"machine", "machinetype", "machine_type"}
+    for _, key in ipairs(m_props) do
+         local val, status = safe_get(tray, key)
+         if val then log("Tray." .. key .. ": " .. tostring(val)) end
+    end
+
+    -- Strategy 4: Generic "info" or "GetParam" methods?
+    -- Often in Lua bindings there is a generic parameter getter
+    local param_methods = {"getparam", "getparameter", "getsetting", "get_parameter"}
+    for _, m in ipairs(param_methods) do
+        if tray[m] then
+             log("Tray has method: " .. m)
+             -- Try calling with common keys? (Dangerous without knowing signature)
+        end
+    end
+
+
     -------------------------------------------------------------------------
-    -- MESH PROBE
+    -- MESH PROBE (Verified working: volume, outbox, support.volume)
     -------------------------------------------------------------------------
     log("\n=== MESH DATA PROBE ===")
 
     if tray.root and tray.root.meshcount > 0 then
-        -- Find a mesh that has supports if possible, otherwise just the first one
         local target_mesh = tray.root:getmesh(0)
-
-        -- Try to find one with "support" property not nil
+        -- Find one with supports
         for i = 0, tray.root.meshcount - 1 do
             local m = tray.root:getmesh(i)
             if m.support then
@@ -152,47 +173,31 @@ if tray then
         log("Target Mesh: " .. target_mesh.name)
 
         -- 1. Volumes
-        log("-- Volumes --")
-        local vol_keys = {"volume", "partvolume", "meshvolume", "supportvolume"}
-        for _, key in ipairs(vol_keys) do
-            local val, status = safe_get(target_mesh, key)
-            log(string.format("TrayMesh.%s: %s", key, tostring(val)))
-        end
+        local vol, v_stat = safe_get(target_mesh, "volume")
+        log("TrayMesh.volume: " .. tostring(vol))
 
-        -- 2. Outbox (Bounding Box)
-        log("-- Bounding Box --")
-        local ob, status = safe_get(target_mesh, "outbox")
+        -- 2. Outbox
+        local ob, ob_stat = safe_get(target_mesh, "outbox")
         if ob then
             local w = ob.maxx - ob.minx
             local d = ob.maxy - ob.miny
             local h = ob.maxz - ob.minz
             local v = w * d * h
-            log(string.format("TrayMesh.outbox: %f x %f x %f (Vol: %f)", w, d, h, v))
+            log(string.format("TrayMesh.outbox Volume: %f", v))
         else
-            log("TrayMesh.outbox: Nil/Error")
+            log("TrayMesh.outbox: Nil")
         end
 
-        -- 3. Support Object Deep Dive
-        log("-- Support Object --")
-        local sup, sup_status = safe_get(target_mesh, "support")
+        -- 3. Support Volume
+        local sup, sup_stat = safe_get(target_mesh, "support")
         if sup then
-            log("TrayMesh.support is present (" .. type(sup) .. ")")
-            dump_meta(sup, "SupportObject")
+            -- We know .volume works now
+            local s_vol, s_v_stat = safe_get(sup, "volume")
+            log("Support.volume: " .. tostring(s_vol) .. " (" .. s_v_stat .. ")")
 
-            -- Probe Support Object
-            local sup_keys = {"volume", "vol", "getvolume", "trianglecount"}
-            for _, key in ipairs(sup_keys) do
-                 local val, s = safe_get(sup, key)
-                 log(string.format("Support.%s: %s", key, tostring(val)))
-
-                 -- Try as method too
-                 local val_m, s_m = safe_call(sup, key)
-                 if s_m == "OK" then
-                     log(string.format("Support:%s(): %s", key, tostring(val_m)))
-                 end
-            end
+            -- Don't probe .vol or others that caused errors
         else
-            log("TrayMesh.support is NIL.")
+            log("TrayMesh.support: Nil")
         end
 
     else
@@ -203,4 +208,4 @@ else
     log("No active tray found.")
 end
 
-log("--- End Deep Probe ---")
+log("--- End Deep Probe v3 ---")
