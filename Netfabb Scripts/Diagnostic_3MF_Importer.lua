@@ -70,10 +70,19 @@ local function inspect_object(obj, name)
     log("Inspecting " .. name .. " (" .. type(obj) .. "):")
     if type(obj) == 'table' then
         for k, v in pairs(obj) do
-            log("  [" .. tostring(k) .. "] = " .. tostring(v) .. " (" .. type(v) .. ")")
+            if k ~= "mt" then
+                log("  [" .. tostring(k) .. "] = " .. tostring(v) .. " (" .. type(v) .. ")")
+            end
             if type(v) == 'userdata' then
                 local ok_name, m_name = pcall(function() return v.name end)
                 if ok_name then log("    -> Mesh Name: " .. tostring(m_name)) end
+            end
+        end
+        -- Inspect wrapper metatable
+        if obj.mt then
+            log("  Wrapper .mt keys:")
+            for k,v in pairs(obj.mt) do
+                log("    " .. tostring(k))
             end
         end
     elseif type(obj) == 'userdata' then
@@ -99,9 +108,11 @@ local ok_m1, res_m1 = pcall(function() return system:load3mf(file_path) end)
 if ok_m1 then
     log("Method 1 call returned success. Result type: " .. type(res_m1))
 
+    inspect_object(res_m1, "load3mf_result")
+
+    -- Rename if possible
     if type(res_m1) == 'table' then
-        inspect_object(res_m1, "load3mf_result")
-        -- If the table contains meshes, rename them
+        -- Iterate regular keys
         for k, v in pairs(res_m1) do
              if type(v) == 'userdata' then
                   pcall(function()
@@ -114,7 +125,6 @@ if ok_m1 then
              end
         end
     elseif type(res_m1) == 'userdata' then
-        -- Single mesh returned
         pcall(function()
              local old = res_m1.name
              res_m1.name = old .. "_load3mf"
@@ -122,24 +132,6 @@ if ok_m1 then
              local _, s_info = check_support(res_m1)
              log("Support: " .. s_info)
         end)
-    else
-        -- Check Global Tray
-        log("Result was nil/bool. Checking global 'tray'...")
-        if tray then
-             log("Tray exists. Mesh count: " .. tostring(tray.root.meshcount))
-             if tray.root.meshcount > 0 then
-                  local mesh = tray.root:getmesh(tray.root.meshcount - 1)
-                  log("Last mesh in tray: " .. mesh.name)
-             end
-        else
-             log("Global 'tray' is nil.")
-        end
-
-        -- Check NetfabbTrayHandler
-        log("Checking netfabbtrayhandler...")
-        if netfabbtrayhandler then
-             log("Tray count: " .. tostring(netfabbtrayhandler.traycount))
-        end
     end
 else
     log("Method 1 failed: " .. tostring(res_m1))
@@ -149,17 +141,19 @@ end
 -- Method 2: system:create3mfimporter
 log("--- Testing Method 2: system:create3mfimporter ---")
 -- Error hint: create3mfimporter(string, boolean, string, object)
+-- Trying to pass tray (or tray.root) as the object
+local target_obj = nil
+if tray then target_obj = tray end
+
 local ok_create, res_create = pcall(function()
-    return system:create3mfimporter(file_path, true, "", nil)
+    return system:create3mfimporter(file_path, true, "", target_obj)
 end)
 
 if ok_create and res_create then
-    log("system:create3mfimporter(path, true, '', nil) returned object.")
+    log("system:create3mfimporter(path, true, '', tray) returned object.")
     local importer = res_create
     inspect_object(importer, "3mf_importer_obj")
 
-    -- Does it run automatically or need a method call?
-    -- If it returns an object, we likely need to call something.
     log("Attempting :execute()...")
     local ok_exec, res_exec = pcall(function() return importer:execute() end)
     log("execute result: " .. tostring(ok_exec) .. " / " .. tostring(res_exec))
@@ -184,16 +178,7 @@ if ok_cad and importer_cad then
     log("system:createcadimport(0) returned object.")
     inspect_object(importer_cad, "cad_importer_obj")
 
-    -- Based on metatable inspection, we will know what to call.
-    -- For now, blindly try 'addfile' and 'import' if not probed
-    log("Attempting generic CAD methods...")
-
-    local ok_add, res_add = pcall(function() return importer_cad:addfile(file_path) end)
-    log("addfile result: " .. tostring(ok_add) .. " / " .. tostring(res_add))
-
-    local ok_imp, res_imp = pcall(function() return importer_cad:import() end)
-    log("import result: " .. tostring(ok_imp) .. " / " .. tostring(res_imp))
-
+    -- Try to deduce method from inspection in previous step, but for now just log the mt
 else
     log("createcadimport failed: " .. tostring(importer_cad))
 end
