@@ -100,38 +100,69 @@ local function inspect_object(obj, name)
     end
 end
 
+-- Helper: Add mesh to tray and process it
+local function add_and_process_mesh(mesh, suffix)
+    if type(mesh) ~= 'userdata' then return end
+
+    -- Rename
+    local old_name = "Unknown"
+    pcall(function() old_name = mesh.name end)
+    local new_name = old_name .. suffix
+    pcall(function() mesh.name = new_name end)
+    log("  Processed mesh: " .. old_name .. " -> " .. new_name)
+
+    -- Add to tray (if not already there - hard to check, but addmesh is usually safe)
+    if tray and tray.root then
+        local ok_add, err_add = pcall(function() tray.root:addmesh(mesh) end)
+        if ok_add then
+            log("    Successfully added to tray.root")
+        else
+            log("    Failed to add to tray.root (or already added): " .. tostring(err_add))
+        end
+    else
+        log("    Cannot add to tray: tray.root not available")
+    end
+
+    -- Check support
+    local _, s_info = check_support(mesh)
+    log("    Support info: " .. s_info)
+end
+
+-- Helper: Get current mesh count safely
+local function get_mesh_count()
+    if tray and tray.root then
+        return tray.root.meshcount
+    end
+    return 0
+end
 
 -- Method 1: system:load3mf
 log("--- Testing Method 1: system:load3mf ---")
+local count_before_m1 = get_mesh_count()
 local ok_m1, res_m1 = pcall(function() return system:load3mf(file_path) end)
 
 if ok_m1 then
     log("Method 1 call returned success. Result type: " .. type(res_m1))
-
     inspect_object(res_m1, "load3mf_result")
 
-    -- Rename if possible
-    if type(res_m1) == 'table' then
-        -- Iterate regular keys
-        for k, v in pairs(res_m1) do
-             if type(v) == 'userdata' then
-                  pcall(function()
-                      local old = v.name
-                      v.name = old .. "_load3mf"
-                      log("Renamed " .. old .. " to " .. v.name)
-                      local _, s_info = check_support(v)
-                      log("Support: " .. s_info)
-                  end)
-             end
+    -- Check for new meshes in tray
+    local count_after_m1 = get_mesh_count()
+    if count_after_m1 > count_before_m1 then
+        log("Method 1 added " .. (count_after_m1 - count_before_m1) .. " meshes to tray.")
+        for i = count_before_m1, count_after_m1 - 1 do
+            local m = tray.root:getmesh(i)
+            add_and_process_mesh(m, "_load3mf")
         end
-    elseif type(res_m1) == 'userdata' then
-        pcall(function()
-             local old = res_m1.name
-             res_m1.name = old .. "_load3mf"
-             log("Renamed " .. old .. " to " .. res_m1.name)
-             local _, s_info = check_support(res_m1)
-             log("Support: " .. s_info)
-        end)
+    else
+        log("Method 1 did not add meshes directly to tray.")
+        -- Fallback: try inspecting result if it was a table of meshes (unlikely given logs, but safe to keep)
+        if type(res_m1) == 'table' then
+            for k, v in pairs(res_m1) do
+                 if type(v) == 'userdata' then add_and_process_mesh(v, "_load3mf") end
+            end
+        elseif type(res_m1) == 'userdata' then
+            add_and_process_mesh(res_m1, "_load3mf")
+        end
     end
 else
     log("Method 1 failed: " .. tostring(res_m1))
@@ -143,84 +174,64 @@ log("--- Testing Method 2: system:create3mfimporter ---")
 
 -- Prepare parent group (4th argument)
 local parent_group = nil
-if tray and tray.root then
-    parent_group = tray.root
-    log("Using tray.root as parent group.")
-elseif netfabbtrayhandler then
-    if netfabbtrayhandler.traycount > 0 then
-        local t = netfabbtrayhandler:gettray(0)
-        if t and t.root then
-            parent_group = t.root
-            log("Using netfabbtrayhandler:gettray(0).root as parent group.")
+if tray and tray.root then parent_group = tray.root end
+
+-- Try signatures based on errors/asserts
+local signatures_to_try = {
+    { args = {file_path}, name = "(path)" },
+    { args = {file_path, true}, name = "(path, true)" },
+    { args = {file_path, true, ""}, name = "(path, true, \"\")" },
+    { args = {file_path, true, parent_group}, name = "(path, true, group)" }, -- simplified 3 args
+    { args = {file_path, true, "", parent_group}, name = "(path, true, \"\", group)" } -- previous one that asserted
+}
+
+local importer = nil
+for _, sig in ipairs(signatures_to_try) do
+    if not importer then
+        log("Trying create3mfimporter" .. sig.name .. "...")
+        local ok_sig, res_sig = pcall(function()
+            -- unpack not available in all Lua 5.1 environments safely for inner closures, manual dispatch
+            if #sig.args == 1 then return system:create3mfimporter(sig.args[1])
+            elseif #sig.args == 2 then return system:create3mfimporter(sig.args[1], sig.args[2])
+            elseif #sig.args == 3 then return system:create3mfimporter(sig.args[1], sig.args[2], sig.args[3])
+            elseif #sig.args == 4 then return system:create3mfimporter(sig.args[1], sig.args[2], sig.args[3], sig.args[4])
+            end
+        end)
+
+        if ok_sig and res_sig then
+            log("  Success!")
+            importer = res_sig
+        else
+            log("  Failed: " .. tostring(res_sig))
         end
-    else
-        log("No trays in netfabbtrayhandler. Cannot determine parent group.")
     end
-else
-    log("Warning: Neither tray.root nor netfabbtrayhandler available.")
 end
 
-if parent_group then
-    -- Try creating the importer
-    -- Signature hint: (path, boolean split_meshes, string password?, object parent_group)
-    local ok_create, res_create = pcall(function()
-        return system:create3mfimporter(file_path, true, "", parent_group)
-    end)
+if importer then
+    log("system:create3mfimporter returned object.")
+    inspect_object(importer, "3mf_importer_obj")
 
-    if ok_create and res_create then
-        log("system:create3mfimporter returned object.")
-        local importer = res_create
-        inspect_object(importer, "3mf_importer_obj")
+    -- Check properties
+    local ok_count, count = pcall(function() return importer.meshcount end)
+    if ok_count then
+        log("importer.meshcount = " .. tostring(count))
 
-        -- Check properties
-        local ok_count, count = pcall(function() return importer.meshcount end)
-        if ok_count then
-            log("importer.meshcount = " .. tostring(count))
+        local start_idx = 0
+        local end_idx = count
+        if count == 0 then end_idx = 1 end
 
-            -- Iterate and retrieve meshes
-            -- Netfabb C++ usually 0-based, Lua usually 1-based. Probing both.
-            local start_idx = 0
-            local end_idx = count -- go slightly past to be sure
-            if count == 0 then end_idx = 1 end
-
-            for i = start_idx, end_idx do
-                local ok_mesh, mesh = pcall(function() return importer:getmesh(i) end)
-                if ok_mesh and mesh then
-                    log("getmesh(" .. i .. ") returned mesh.")
-
-                    -- Rename
-                    local current_name = "Unknown"
-                    pcall(function() current_name = mesh.name end)
-                    local new_name = current_name .. "_importer"
-                    pcall(function() mesh.name = new_name end)
-                    log("  Renamed to: " .. new_name)
-
-                    -- Add to tray if not already there (getmesh might just return the object)
-                    local ok_add, err_add = pcall(function() parent_group:addmesh(mesh) end)
-                    if ok_add then
-                        log("  Added to tray.root.")
-                    else
-                        -- It might fail if already added by the importer constructor
-                        log("  Failed to add to tray.root (maybe already added): " .. tostring(err_add))
-                    end
-
-                    -- Check support
-                    local _, s_info = check_support(mesh)
-                    log("  Support: " .. s_info)
-
-                else
-                    -- log("getmesh(" .. i .. ") returned nil/failed.")
-                end
+        for i = start_idx, end_idx do
+            local ok_mesh, mesh = pcall(function() return importer:getmesh(i) end)
+            if ok_mesh and mesh then
+                log("getmesh(" .. i .. ") returned mesh.")
+                add_and_process_mesh(mesh, "_importer")
             end
-        else
-            log("Could not read importer.meshcount")
         end
-
     else
-        log("create3mfimporter call failed: " .. tostring(res_create))
+        log("Could not read importer.meshcount")
     end
 else
-    log("Skipping Method 2 because no parent group could be determined.")
+    log("All create3mfimporter signatures failed.")
 end
 
 
@@ -232,6 +243,44 @@ local ok_cad, importer_cad = pcall(function() return system:createcadimport(0) e
 if ok_cad and importer_cad then
     log("system:createcadimport(0) returned object.")
     inspect_object(importer_cad, "cad_importer_obj")
+
+    -- Probe methods with tray counting
+    local methods_to_try = {"import", "execute", "load"}
+    local success_3 = false
+
+    for _, m_name in ipairs(methods_to_try) do
+        if not success_3 then
+            log("Attempting importer_cad:" .. m_name .. "()...")
+            local c_before = get_mesh_count()
+
+            local ok_call, res_call = pcall(function()
+                if importer_cad[m_name] then
+                    return importer_cad[m_name](importer_cad, file_path)
+                else
+                    error("Method not found")
+                end
+            end)
+
+            local c_after = get_mesh_count()
+
+            if ok_call then
+                log("  Success calling " .. m_name)
+                success_3 = true
+
+                if c_after > c_before then
+                    log("  " .. m_name .. " added " .. (c_after - c_before) .. " meshes.")
+                    for i = c_before, c_after - 1 do
+                        local m = tray.root:getmesh(i)
+                        add_and_process_mesh(m, "_cadimport")
+                    end
+                elseif type(res_call) == 'userdata' then
+                    add_and_process_mesh(res_call, "_cadimport")
+                end
+            else
+                log("  Failed calling " .. m_name .. ": " .. tostring(res_call))
+            end
+        end
+    end
 else
     log("createcadimport failed: " .. tostring(importer_cad))
 end
