@@ -9,16 +9,33 @@ local function log(msg)
 end
 
 -- Attempt to resolve a dynamic path for logging
-local log_file_path = nil
-pcall(function()
-    local user_profile = os.getenv("USERPROFILE")
-    if user_profile then
-        log_file_path = user_profile .. "\\Desktop\\Diagnostic_3MF_Log.txt"
-    end
+-- 1. File Selection & Log Setup (Template Style)
+local file_path = ""
+local ok_input, input_path = pcall(function()
+    return system:inputdlg("Enter full path to the .3mf file:", "Input 3MF File Path", "C:\\")
 end)
 
+if ok_input and input_path and input_path ~= "" then
+    file_path = input_path
+else
+    log("No path entered. Exiting.")
+    return
+end
+
+-- Sanitize path (remove quotes)
+file_path = string.gsub(file_path, '"', '')
+
+-- Check validity
+if file_path == "" then
+    log("Invalid path (empty after cleanup).")
+    return
+end
+
+-- Setup Log File in the same directory (or parent if file)
+local log_file_path = file_path .. "_diagnostic_log.txt"
+
 local function log_to_file(msg)
-    if log_file_path and system and system.logtofile then
+    if system and system.logtofile then
         pcall(function() system:logtofile(log_file_path, msg) end)
     end
 end
@@ -29,17 +46,8 @@ local function print_log(msg)
 end
 
 print_log("--- Starting Diagnostic_3MF_Importer ---")
-
--- 1. File Selection
-print_log("Asking user for file...")
-local file_path = system:showopendialog("*.3mf")
-
-if not file_path or file_path == "" then
-    print_log("No file selected. Exiting.")
-    return
-end
-
 print_log("Selected file: " .. file_path)
+print_log("Log file set to: " .. log_file_path)
 
 -- Helper to inspect system keys
 print_log("Inspecting 'system' keys for '3mf'...")
