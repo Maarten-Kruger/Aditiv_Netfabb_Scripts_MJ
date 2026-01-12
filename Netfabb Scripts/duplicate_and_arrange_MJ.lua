@@ -106,6 +106,35 @@ local function process_tray(current_tray, tray_name)
 
     log("Template Part: " .. template_part.name)
 
+    -- 2.5 Export 3MF of the Template Part
+    log("Exporting 3MF for " .. template_part.name .. "...")
+    local exp_ok, exp_err = pcall(function()
+        if system and system.create3mfexporter then
+            local exporter = system:create3mfexporter()
+            local entry = exporter:add(template_part.mesh)
+            entry.name = template_part.name
+            entry.grouppath = "3mfexport/parts"
+
+            if template_part.hassupport then
+                entry:setsupport(template_part.support)
+            end
+
+            -- Sanitize names for filename
+            local safe_tray = string.gsub(tray_name, "[^%w%-_]", "")
+            local safe_part = string.gsub(template_part.name, "[^%w%-_]", "")
+            local export_filename = save_path .. "Export_" .. safe_tray .. "_" .. safe_part .. ".3mf"
+
+            exporter:exporttofile(export_filename)
+            log("Exported to: " .. export_filename)
+        else
+            log("Warning: system:create3mfexporter not available.")
+        end
+    end)
+
+    if not exp_ok then
+        log("Export Failed: " .. tostring(exp_err))
+    end
+
     -- 3. Calculate Part Area
     local part_area = 0.0
     local luamesh = template_part.mesh
@@ -226,19 +255,30 @@ local function process_tray(current_tray, tray_name)
     update_progress(90, "Processing " .. tray_name .. ": Packing...")
 
     if current_tray.createpacker then
-        local p_ok, packer = pcall(function() return current_tray:createpacker(current_tray.packingid_trueshape) end)
+        local p_ok, packer = pcall(function() return current_tray:createpacker(current_tray.packingid_2d) end)
         if p_ok and packer then
-            packer.packing_2d = true
-            packer.minimaldistance = 2.0
+            -- Configure Packer Settings based on Pack_Trays_Scanline_MJ.lua
+            local cfg_ok, cfg_err = pcall(function()
+                packer.rastersize = 1       -- Voxel size (mm)
+                packer.anglecount = 7       -- Rotation steps
+                packer.coarsening = 1       -- Accuracy
+                packer.placeoutside = true  -- Allow placing remaining parts outside
+                packer.borderspacingxy = 1.0 -- Spacing between parts/border
+                packer.packonlyselected = false -- Pack all parts
+            end)
 
-            local pack_ok, pack_res = pcall(function() return packer:pack() end)
-            if pack_ok then
-                log("Packing complete.")
+            if cfg_ok then
+                 local pack_ok, pack_res = pcall(function() return packer:pack() end)
+                 if pack_ok then
+                     log("Packing complete (Code: " .. tostring(pack_res) .. ").")
+                 else
+                     log("Packing failed/crashed: " .. tostring(pack_res))
+                 end
             else
-                log("Packing failed: " .. tostring(pack_res))
+                 log("Failed to configure packer: " .. tostring(cfg_err))
             end
         else
-            log("Failed to create TrueShape packer.")
+            log("Failed to create Scanline (packingid_2d) packer.")
         end
     else
         log("createpacker method not available.")
