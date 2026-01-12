@@ -244,42 +244,42 @@ if ok_cad and importer_cad then
     log("system:createcadimport(0) returned object.")
     inspect_object(importer_cad, "cad_importer_obj")
 
-    -- Probe methods with tray counting
-    local methods_to_try = {"import", "execute", "load"}
-    local success_3 = false
+    -- Step 3a: Add File
+    log("Attempting importer_cad:addfile(path)...")
+    local ok_add, res_add = pcall(function() return importer_cad:addfile(file_path) end)
 
-    for _, m_name in ipairs(methods_to_try) do
-        if not success_3 then
-            log("Attempting importer_cad:" .. m_name .. "()...")
-            local c_before = get_mesh_count()
+    if ok_add then
+        log("  addfile success.")
 
-            local ok_call, res_call = pcall(function()
-                if importer_cad[m_name] then
-                    return importer_cad[m_name](importer_cad, file_path)
+        -- Step 3b: createmesh (all entities)
+        log("Attempting importer_cad:createmesh()...")
+        local ok_cm, mesh_cm = pcall(function() return importer_cad:createmesh() end)
+        if ok_cm and mesh_cm then
+            log("  createmesh success.")
+            add_and_process_mesh(mesh_cm, "_cadimport_all")
+        else
+            log("  createmesh failed: " .. tostring(mesh_cm))
+        end
+
+        -- Step 3c: createsinglemesh (iterate entities)
+        -- We don't have 'entitycount' property confirmed, so we probe indices 0-10
+        log("Attempting createsinglemesh loop (0-10)...")
+        for i = 0, 10 do
+            local ok_name, name = pcall(function() return importer_cad:getentityname(i) end)
+            if ok_name and name and name ~= "" then
+                log("  Entity " .. i .. ": " .. tostring(name))
+
+                local ok_sm, mesh_sm = pcall(function() return importer_cad:createsinglemesh(i) end)
+                if ok_sm and mesh_sm then
+                    add_and_process_mesh(mesh_sm, "_cadimport_ent" .. i)
                 else
-                    error("Method not found")
+                    log("    createsinglemesh failed.")
                 end
-            end)
-
-            local c_after = get_mesh_count()
-
-            if ok_call then
-                log("  Success calling " .. m_name)
-                success_3 = true
-
-                if c_after > c_before then
-                    log("  " .. m_name .. " added " .. (c_after - c_before) .. " meshes.")
-                    for i = c_before, c_after - 1 do
-                        local m = tray.root:getmesh(i)
-                        add_and_process_mesh(m, "_cadimport")
-                    end
-                elseif type(res_call) == 'userdata' then
-                    add_and_process_mesh(res_call, "_cadimport")
-                end
-            else
-                log("  Failed calling " .. m_name .. ": " .. tostring(res_call))
             end
         end
+
+    else
+        log("  addfile failed: " .. tostring(res_add))
     end
 else
     log("createcadimport failed: " .. tostring(importer_cad))
