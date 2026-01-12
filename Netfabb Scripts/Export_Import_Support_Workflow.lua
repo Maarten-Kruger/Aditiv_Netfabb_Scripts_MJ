@@ -8,7 +8,8 @@ end
 log("--- Starting Export_Import_Support_Workflow ---")
 
 -- 1. Setup Logging
-local log_file = (os.getenv("USERPROFILE") or "C:") .. "\\Desktop\\SupportWorkflow_Log.txt"
+-- Fixed: Removed os.getenv dependency which caused runtime errors.
+local log_file = "C:\\SupportWorkflow_Log.txt"
 if system.logtofile then pcall(function() system:logtofile(log_file) end) end
 log("Log file: " .. log_file)
 
@@ -104,7 +105,8 @@ end
 
 -- 4. Export to 3MF
 log("Step: Exporting to 3MF...")
-local export_path = (os.getenv("USERPROFILE") or "C:") .. "\\Desktop\\SplitSupportExport.3mf"
+-- Fixed: Removed os.getenv
+local export_path = "C:\\SplitSupportExport.3mf"
 local ok_exp, exporter = pcall(function() return system:create3mfexporter() end)
 
 if ok_exp and exporter then
