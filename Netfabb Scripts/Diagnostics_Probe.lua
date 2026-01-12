@@ -1,6 +1,7 @@
 -- Diagnostics_Probe.lua
 -- Probes for properties on Tray, TrayMesh, and LuaMesh objects.
 -- Deep dive into Support objects and Tray Parameters.
+-- Fixed Lua 5.1 syntax error regarding varargs in closures.
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
@@ -36,10 +37,12 @@ function safe_get(obj, key)
     if ok then return val, "OK" else return nil, err end
 end
 
-function safe_call(obj, method_name, ...)
+-- Simplified safe_call without varargs to avoid Lua 5.1 closure issues
+-- We only use this for 0-argument getters anyway.
+function safe_call(obj, method_name)
     if not obj[method_name] then return nil, "Method not found" end
     local val = nil
-    local ok, err = pcall(function() val = obj[method_name](obj, ...) end)
+    local ok, err = pcall(function() val = obj[method_name](obj) end)
     if ok then return val, "OK" else return nil, err end
 end
 
