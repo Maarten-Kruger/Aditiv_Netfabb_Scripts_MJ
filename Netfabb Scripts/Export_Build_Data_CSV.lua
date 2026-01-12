@@ -1,5 +1,6 @@
 -- Export_Build_Data_CSV.lua
 -- Exports build data to a CSV, consolidating info from an existing CSV and the Netfabb environment.
+-- Updated to prompt for Build Time if not found.
 
 -- ==============================================================================
 -- 0. Helper Functions (Logging, Safety, String Manipulation)
@@ -10,14 +11,6 @@ local log_file_path = ""
 function log(msg)
     if system and system.log then system:log(msg) end
     print(msg)
-end
-
-function log_to_file(msg)
-    if log_file_path ~= "" and system and system.logtofile then
-         -- system:logtofile appends or overwrites? usually sets the file.
-         -- In Netfabb, system:logtofile sets the target. standard log() writes to it.
-         log(msg)
-    end
 end
 
 -- Safe property getter
@@ -84,8 +77,6 @@ end
 function clean_name(name)
     -- Remove extension
     local n = string.gsub(name, "%.%w+$", "")
-    -- Remove common copy suffixes if present (though we filter dupes later)
-    -- n = string.gsub(n, "%s*%(%d+%)", "")
     return n
 end
 
@@ -155,24 +146,20 @@ if not f then
     return
 end
 
-local header_found = false
-local sep = "," -- Try to detect? Assuming comma for input, semicolon for output as requested?
--- Let's check first line
+local sep = "," -- Default assumption
 local first_line = f:read()
 if first_line then
     if string.find(first_line, ";") then sep = ";" end
-    -- Check columns? Assuming order: Part Name, Quantity, Material, Link
-    -- Or we can try to find indices. For now, assume order.
 end
 
--- Reset file or handle first line
--- If first line is header, skip.
--- "Part Name, Quantity, Material, Link to CAD"
-if first_line and string.find(string.lower(first_line), "part name") then
-    -- It is header
-else
-    -- Process first line if not header (unlikely)
-    -- But let's assume standard format with header
+-- Process first line if it's NOT a header, but usually it is.
+-- We'll just skip the first line if it contains "Part Name"
+if first_line and not string.find(string.lower(first_line), "part name") then
+    -- It's data, process it
+     local cols = parse_csv_line(first_line, sep)
+     if #cols >= 4 then
+        input_data[cols[1]] = {qty = cols[2], mat = cols[3], link = cols[4]}
+     end
 end
 
 -- Read rest
@@ -184,19 +171,12 @@ for line in f:lines() do
             local qty = cols[2]
             local mat = cols[3]
             local link = cols[4]
-
-            -- Store
-            -- We might need to handle matching loosely (case insensitive?)
             input_data[p_name] = {qty = qty, mat = mat, link = link}
         end
     end
 end
 f:close()
-log("Loaded " .. 0 .. " entries from input CSV (logic check needed).")
--- Refill count properly
-local count = 0
-for k,v in pairs(input_data) do count = count + 1 end
-log("Actually loaded " .. count .. " entries.")
+log("Loaded CSV data.")
 
 
 -- ==============================================================================
@@ -220,11 +200,10 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
     log("Inspecting " .. tray_name)
 
     -- A. TRAY DATA (Time, Thickness)
-    -- Try to find them, default to "nil"
     local build_time = "nil"
     local layer_thick = "nil"
 
-    -- Probing Logic (Best Effort)
+    -- Probing Logic
     local function find_tray_prop(keys)
         for _, k in ipairs(keys) do
             local v = safe_get(tray, k)
@@ -240,7 +219,19 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
     end
 
     local bt = find_tray_prop({"buildtime", "totalbuildtime", "estimatedbuildtime"})
-    if bt then build_time = tostring(bt) end
+    if bt then
+        build_time = tostring(bt)
+    else
+        -- Fallback: Prompt user for Build Time
+        -- We ask once per tray
+        local ok_bt, input_bt = pcall(function()
+            return system:inputdlg("Enter Build Time for " .. tray_name .. " (e.g. 5h 30m):", "Manual Build Time Input", "00:00:00")
+        end)
+        if ok_bt and input_bt and input_bt ~= "" then
+            build_time = input_bt
+            log("  User entered build time: " .. build_time)
+        end
+    end
 
     local lt = find_tray_prop({"layerthickness", "layer_thickness", "sliceheight"})
     if lt then layer_thick = tostring(lt) end
@@ -252,8 +243,7 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
             local tm_name = tm.name
 
             -- Check if it is a duplicate
-            -- "in the name of the duplicates the word "(dupe)" will be written"
-            if not string.find(tm_name, "%(dupe%)") then
+            if not string.find(tm_name, "%(dupe%)") and not string.find(tm_name, "dup%d+") then
                 log("  Found original part: " .. tm_name)
 
                 -- C. MESH DATA (Volumes)
@@ -272,7 +262,6 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
                     if sv then
                         sup_vol = tostring(sv)
                     else
-                        -- fallback method check
                          local sv_m = safe_call(sup, "getvolume")
                          if sv_m then sup_vol = tostring(sv_m) end
                     end
@@ -288,7 +277,6 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
                 end
 
                 -- D. MATCH WITH INPUT CSV
-                -- Clean name to match key
                 local clean_key = clean_name(tm_name)
                 local info = input_data[clean_key]
 
@@ -300,7 +288,6 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
                     csv_qty = info.qty
                     csv_mat = info.mat
                     csv_link = info.link
-                    log("    Matched with Input CSV data.")
                 else
                     log("    Warning: No matching entry in Input CSV for '" .. clean_key .. "'")
                 end
@@ -317,9 +304,6 @@ for i = 0, netfabbtrayhandler.traycount - 1 do
                     time = build_time,
                     layer = layer_thick
                 })
-
-                -- Assuming one "Original" per tray?
-                -- If there are multiple different parts in one tray, this loop handles them all.
             end
         end
     end
@@ -333,11 +317,11 @@ end
 local out_f, err = io.open(output_full_path, "w")
 if not out_f then
     log("Error: Could not open output file for writing: " .. tostring(err))
+    system:messagebox("Error: Could not open output file: " .. output_full_path)
     return
 end
 
 -- Header
--- "Part name;Qty; Material; Link to CAD; BoundingBoxVol; PartVol; SupportVol; TotalBuildTime; LAyerthickness"
 out_f:write("Part name;Qty;Material;Link to CAD;BoundingBoxVol;PartVol;SupportVol;TotalBuildTime;LAyerthickness\n")
 
 for _, r in ipairs(results) do
@@ -348,4 +332,8 @@ end
 
 out_f:close()
 log("Success! Exported " .. #results .. " rows to " .. output_full_path)
+if system and system.messagebox then
+    pcall(function() system:messagebox("Export Complete!\nSaved to: " .. output_full_path) end)
+end
+
 log("--- Script Complete ---")
