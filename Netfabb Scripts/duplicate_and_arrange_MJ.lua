@@ -217,7 +217,7 @@ local function process_tray(current_tray, tray_name)
              local newly_added = {}
              for i = 1, duplicates_needed do
                  local new_traymesh = root:addmesh(master_geometry)
-                 new_traymesh.name = base_name .. "_(dupe_" .. i .. ")"
+                 new_traymesh.name = base_name .. "_(dup" .. i .. ")"
                  table.insert(newly_added, new_traymesh)
              end
              log("Added " .. duplicates_needed .. " supported duplicates.")

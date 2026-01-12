@@ -1,6 +1,6 @@
-<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.2.9 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.2.9">
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.3.0 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.3.0">
   <diagram name="Page-1" id="3Vs2cMsR-JHHU3kFnKdd">
-    <mxGraphModel dx="1152" dy="838" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="549" dy="399" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -696,7 +696,7 @@
             <mxRectangle height="110" width="100" as="alternateBounds" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="f7B7OiHbWpcXKL_57gV5-109" parent="f7B7OiHbWpcXKL_57gV5-107" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;fontSize=16;align=left;spacingTop=0;spacingRight=0;spacingLeft=8;" value="&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;- Duplicate parts with support&lt;/span&gt;&lt;/div&gt;&lt;div&gt;- Organize to fill [60%] of build plate area&lt;/div&gt;&lt;div&gt;- Save to .3mf&lt;/div&gt;" vertex="1">
+        <mxCell id="f7B7OiHbWpcXKL_57gV5-109" parent="f7B7OiHbWpcXKL_57gV5-107" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;fontSize=16;align=left;spacingTop=0;spacingRight=0;spacingLeft=8;" value="&lt;div&gt;- Save to .3mf&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;- Duplicate to fill [60%] parts with support&lt;/span&gt;&lt;/div&gt;&lt;div&gt;- Organize build plate area&lt;/div&gt;" vertex="1">
           <mxGeometry height="110" width="220" x="100" as="geometry">
             <mxRectangle height="110" width="220" as="alternateBounds" />
           </mxGeometry>
@@ -743,7 +743,7 @@
         <mxCell id="f7B7OiHbWpcXKL_57gV5-119" edge="1" parent="1" source="f7B7OiHbWpcXKL_57gV5-99" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.306;entryY=-0.013;entryDx=0;entryDy=0;strokeWidth=5;entryPerimeter=0;" target="f7B7OiHbWpcXKL_57gV5-104">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="f7B7OiHbWpcXKL_57gV5-120" parent="1" style="text;strokeColor=default;fillColor=none;html=1;whiteSpace=wrap;verticalAlign=middle;overflow=hidden;" value="&lt;ul&gt;&lt;li&gt;Data CSV&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Name&lt;/li&gt;&lt;li&gt;Bounding Box&lt;/li&gt;&lt;li&gt;Volume Part&lt;/li&gt;&lt;li&gt;Volume Support&lt;/li&gt;&lt;li&gt;Qty&lt;/li&gt;&lt;li&gt;Build time&lt;/li&gt;&lt;li&gt;Layer thickness&lt;/li&gt;&lt;li&gt;Material&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Seperate files with editable supports&lt;/li&gt;&lt;li&gt;Full Netfabb File&lt;/li&gt;&lt;/ul&gt;" vertex="1">
+        <mxCell id="f7B7OiHbWpcXKL_57gV5-120" parent="1" style="text;strokeColor=default;fillColor=none;html=1;whiteSpace=wrap;verticalAlign=middle;overflow=hidden;" value="&lt;ul&gt;&lt;li&gt;Data CSV&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Name&lt;/li&gt;&lt;li&gt;Bounding Box&lt;/li&gt;&lt;li&gt;Volume Part&lt;/li&gt;&lt;li&gt;Volume Support&lt;/li&gt;&lt;li&gt;Qty&lt;/li&gt;&lt;li&gt;Build time&lt;/li&gt;&lt;li&gt;Layer thickness&lt;/li&gt;&lt;li&gt;Material&lt;/li&gt;&lt;li&gt;Link to CAD&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Seperate files with editable supports&lt;/li&gt;&lt;li&gt;Full Netfabb File&lt;/li&gt;&lt;/ul&gt;" vertex="1">
           <mxGeometry height="210" width="210" x="1340" y="900" as="geometry" />
         </mxCell>
         <mxCell id="CrMJ5Yai5qqSsIgUWioD-2" parent="1" style="shape=table;startSize=0;container=1;collapsible=0;childLayout=tableLayout;fontSize=16;align=left;spacingTop=0;spacingBottom=0;" value="" vertex="1">
