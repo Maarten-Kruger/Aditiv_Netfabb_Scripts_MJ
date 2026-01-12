@@ -1,6 +1,7 @@
 -- Export_Build_Data_CSV.lua
 -- Exports build data to a CSV, consolidating info from an existing CSV and the Netfabb environment.
 -- Updated to prompt for Build Time if not found.
+-- Fixes write issues and ensures robust file handling.
 
 -- ==============================================================================
 -- 0. Helper Functions (Logging, Safety, String Manipulation)
@@ -95,6 +96,7 @@ else
 end
 
 folder_path = string.gsub(folder_path, '"', '')
+-- Fix: prevent double backslashes if user entered one
 if string.sub(folder_path, -1) ~= "\\" then folder_path = folder_path .. "\\" end
 
 log_file_path = folder_path .. "export_script_log.txt"
@@ -113,6 +115,7 @@ if ok_csv and in_csv and in_csv ~= "" then
     input_csv_path = string.gsub(in_csv, '"', '')
 else
     log("No Input CSV provided. Exiting.")
+    if system and system.messagebox then system:messagebox("Error: No Input CSV provided.") end
     return
 end
 log("Input CSV: " .. input_csv_path)
@@ -143,6 +146,7 @@ local input_data = {} -- Key: Part Name, Value: {Qty, Material, Link}
 local f = io.open(input_csv_path, "r")
 if not f then
     log("Error: Could not open input CSV.")
+    if system and system.messagebox then system:messagebox("Error: Could not open input CSV at:\n" .. input_csv_path) end
     return
 end
 
@@ -317,7 +321,7 @@ end
 local out_f, err = io.open(output_full_path, "w")
 if not out_f then
     log("Error: Could not open output file for writing: " .. tostring(err))
-    system:messagebox("Error: Could not open output file: " .. output_full_path)
+    system:messagebox("Error: Could not open output file: " .. output_full_path .. "\nCheck permissions.")
     return
 end
 
@@ -325,11 +329,23 @@ end
 out_f:write("Part name;Qty;Material;Link to CAD;BoundingBoxVol;PartVol;SupportVol;TotalBuildTime;LAyerthickness\n")
 
 for _, r in ipairs(results) do
+    -- Ensure no nils (just in case)
+    local function clean_field(f) return f or "nil" end
+
     local line = string.format("%s;%s;%s;%s;%s;%s;%s;%s;%s",
-        r.name, r.qty, r.mat, r.link, r.bb_vol, r.part_vol, r.sup_vol, r.time, r.layer)
+        clean_field(r.name),
+        clean_field(r.qty),
+        clean_field(r.mat),
+        clean_field(r.link),
+        clean_field(r.bb_vol),
+        clean_field(r.part_vol),
+        clean_field(r.sup_vol),
+        clean_field(r.time),
+        clean_field(r.layer))
     out_f:write(line .. "\n")
 end
 
+out_f:flush()
 out_f:close()
 log("Success! Exported " .. #results .. " rows to " .. output_full_path)
 if system and system.messagebox then

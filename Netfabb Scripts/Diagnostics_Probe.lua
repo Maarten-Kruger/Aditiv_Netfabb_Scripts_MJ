@@ -1,7 +1,7 @@
 -- Diagnostics_Probe.lua
 -- Probes for properties on Tray, TrayMesh, and LuaMesh objects.
 -- Deep dive into Support objects and Tray Parameters.
--- Fixed invalid property access errors in safe_call.
+-- ALSO PROBES FOR FILE I/O CAPABILITIES.
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
@@ -37,25 +37,16 @@ function safe_get(obj, key)
     if ok then return val, "OK" else return nil, err end
 end
 
-function safe_call(obj, method_name)
-    -- Wrap the method lookup in pcall because obj[method_name] can throw errors on Netfabb objects
-    local method = nil
-    local ok_get, err_get = pcall(function() method = obj[method_name] end)
+function safe_call(obj, method)
+    local method_func = nil
+    local ok_get, err_get = pcall(function() method_func = obj[method] end)
 
-    if not ok_get then
-        return nil, "Error looking up method: " .. tostring(err_get)
-    end
-
-    if not method then
-        return nil, "Method not found (nil)"
-    end
-
-    if type(method) ~= "function" then
-        return nil, "Property exists but is not a function (" .. type(method) .. ")"
+    if not ok_get or not method_func or type(method_func) ~= "function" then
+        return nil, "Method invalid"
     end
 
     local val = nil
-    local ok_call, err_call = pcall(function() val = method(obj) end)
+    local ok_call, err_call = pcall(function() val = method_func(obj) end)
     if ok_call then return val, "OK" else return nil, err_call end
 end
 
@@ -74,7 +65,6 @@ function dump_meta(obj, obj_name)
         else
             log("__index is " .. type(index))
         end
-        -- Dump actual keys if accessible
         for k,v in pairs(mt) do
             if k ~= "__index" then
                  log("  [MT] " .. tostring(k) .. " (" .. type(v) .. ")")
@@ -86,49 +76,72 @@ function dump_meta(obj, obj_name)
     log("-------------------------------------------")
 end
 
-log("--- Starting Deep Probe v4 ---")
+log("--- Starting Deep Probe v5 (IO Check) ---")
 log("Log Path: " .. log_path)
 
--- 1. Determine Active Tray
-local tray = nil
-if _G.tray then
-    tray = _G.tray
-    log("Using _G.tray")
-elseif _G.netfabbtrayhandler then
-    for i = 0, netfabbtrayhandler.traycount - 1 do
-        local t = netfabbtrayhandler:gettray(i)
-        if t and t.root and t.root.meshcount > 0 then
-            tray = t
-            log("Using netfabbtrayhandler tray " .. i)
-            break
+-------------------------------------------------------------------------
+-- GLOBAL LIBRARY CHECK
+-------------------------------------------------------------------------
+log("\n=== GLOBAL LIBRARY CHECK ===")
+local libs = {"io", "os", "string", "table", "math", "package", "debug", "lfs"}
+for _, l in ipairs(libs) do
+    if _G[l] then
+        log("Global '" .. l .. "' FOUND (" .. type(_G[l]) .. ")")
+        if l == "io" then
+            local open_exists = _G.io.open and "yes" or "no"
+            log("  io.open exists: " .. open_exists)
+        elseif l == "os" then
+            local exec_exists = _G.os.execute and "yes" or "no"
+            log("  os.execute exists: " .. exec_exists)
         end
-    end
-    if not tray and netfabbtrayhandler.traycount > 0 then
-        tray = netfabbtrayhandler:gettray(0)
-        log("Using netfabbtrayhandler tray 0 (Empty)")
+    else
+        log("Global '" .. l .. "' NOT FOUND (nil)")
     end
 end
 
-if tray then
-    -------------------------------------------------------------------------
-    -- TRAY PROBE
-    -------------------------------------------------------------------------
-    log("\n=== TRAY DATA PROBE ===")
+-------------------------------------------------------------------------
+-- SYSTEM CAPABILITY CHECK
+-------------------------------------------------------------------------
+log("\n=== SYSTEM CAPABILITY CHECK ===")
+if system then
+    dump_meta(system, "System")
 
-    -- Try Slice (with safe_call fix)
+    -- Search for anything that looks like file saving
+    log("-- Searching for 'save' or 'write' methods in system --")
+    local mt = getmetatable(system)
+    if mt and mt.__index and type(mt.__index) == "table" then
+        for k,v in pairs(mt.__index) do
+             if type(k) == "string" then
+                 local ks = string.lower(k)
+                 if string.find(ks, "save") or string.find(ks, "write") or string.find(ks, "file") then
+                     log("  Found candidate: " .. k .. " (" .. type(v) .. ")")
+                 end
+             end
+        end
+    end
+else
+    log("System object not found!")
+end
+
+-------------------------------------------------------------------------
+-- TRAY PROBE
+-------------------------------------------------------------------------
+log("\n=== TRAY DATA PROBE ===")
+
+local tray = nil
+if _G.tray then
+    tray = _G.tray
+elseif _G.netfabbtrayhandler and netfabbtrayhandler.traycount > 0 then
+    tray = netfabbtrayhandler:gettray(0)
+end
+
+if tray then
     local slice = nil
     local s_val, s_stat = safe_get(tray, "slice")
-    if s_val then
-        log("Tray has .slice property (" .. type(s_val) .. ")")
-        slice = s_val
-    else
+    if s_val then slice = s_val end
+    if not slice then
         local s2_val, s2_stat = safe_call(tray, "getslice")
-        if s2_val then
-             log("Tray:getslice() returned (" .. type(s2_val) .. ")")
-             slice = s2_val
-        else
-             log("Tray:getslice() failed: " .. tostring(s2_stat))
-        end
+        if s2_val then slice = s2_val end
     end
 
     if slice then
@@ -139,75 +152,8 @@ if tray then
              log("Slice." .. key .. ": " .. tostring(val) .. " (" .. status .. ")")
         end
     end
-
-    -------------------------------------------------------------------------
-    -- SYSTEM PROBE
-    -------------------------------------------------------------------------
-    log("\n=== SYSTEM / GLOBAL PROBE ===")
-    if system then
-        dump_meta(system, "System")
-        local sys_props = {"machine", "buildroom", "layerthickness", "buildtime"}
-        for _, key in ipairs(sys_props) do
-             local val, status = safe_get(system, key)
-             if val then log("system." .. key .. ": " .. tostring(val)) end
-        end
-    end
-
-    if application then
-        log("application object found.")
-        dump_meta(application, "Application")
-    end
-
-    -------------------------------------------------------------------------
-    -- MESH PROBE
-    -------------------------------------------------------------------------
-    log("\n=== MESH DATA PROBE ===")
-
-    if tray.root and tray.root.meshcount > 0 then
-        local target_mesh = tray.root:getmesh(0)
-        -- Find one with supports
-        for i = 0, tray.root.meshcount - 1 do
-            local m = tray.root:getmesh(i)
-            if m.support then
-                target_mesh = m
-                log("Found mesh with supports at index " .. i)
-                break
-            end
-        end
-
-        log("Target Mesh: " .. target_mesh.name)
-
-        -- 1. Volumes
-        local vol, v_stat = safe_get(target_mesh, "volume")
-        log("TrayMesh.volume: " .. tostring(vol))
-
-        -- 2. Outbox
-        local ob, ob_stat = safe_get(target_mesh, "outbox")
-        if ob then
-            local w = ob.maxx - ob.minx
-            local d = ob.maxy - ob.miny
-            local h = ob.maxz - ob.minz
-            local v = w * d * h
-            log(string.format("TrayMesh.outbox Volume: %f", v))
-        else
-            log("TrayMesh.outbox: Nil")
-        end
-
-        -- 3. Support Volume
-        local sup, sup_stat = safe_get(target_mesh, "support")
-        if sup then
-            local s_vol, s_v_stat = safe_get(sup, "volume")
-            log("Support.volume: " .. tostring(s_vol) .. " (" .. s_v_stat .. ")")
-        else
-            log("TrayMesh.support: Nil")
-        end
-
-    else
-        log("No meshes in tray.")
-    end
-
 else
-    log("No active tray found.")
+    log("No tray available for probe.")
 end
 
-log("--- End Deep Probe v4 ---")
+log("--- End Deep Probe v5 ---")
