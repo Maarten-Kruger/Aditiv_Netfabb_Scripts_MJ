@@ -1,6 +1,5 @@
 -- Diagnostic_3MF_Importer.lua
--- Diagnostic script to test 3MF import methods and support editability.
--- Focused on system:create3mfimporter as requested.
+-- Diagnostic script to test 3MF import using system:load3mf as requested.
 
 local function log(msg)
     if system and system.log then
@@ -8,7 +7,7 @@ local function log(msg)
     end
 end
 
-log("--- Starting Diagnostic_3MF_Importer (Focused) ---")
+log("--- Starting Diagnostic_3MF_Importer (load3mf Focus) ---")
 
 -- 1. File Selection
 log("Opening file dialog...")
@@ -41,9 +40,6 @@ local function check_support(mesh)
         if type(res_supp) == 'userdata' or type(res_supp) == 'table' then
              local ok_vol, vol = pcall(function() return res_supp.volume end)
              if ok_vol then support_info = support_info .. ", Volume: " .. tostring(vol) end
-
-             local ok_tc, tc = pcall(function() return res_supp.trianglecount end)
-             if ok_tc then support_info = support_info .. ", Triangles: " .. tostring(tc) end
         end
     else
         -- Fallback: check getsupportcount
@@ -65,7 +61,8 @@ local function add_and_process_mesh(mesh, suffix)
     end
 
     local name = "Unknown"
-    pcall(function() name = mesh.name end)
+    local ok_name, n = pcall(function() return mesh.name end)
+    if ok_name then name = n end
 
     -- Rename
     local new_name = name .. suffix
@@ -94,110 +91,68 @@ local function add_and_process_mesh(mesh, suffix)
     return mesh
 end
 
--- Method 2: system:create3mfimporter
-log("--- Testing Method 2: system:create3mfimporter ---")
+-- Method: system:load3mf
+log("--- Testing Method: system:load3mf ---")
+log("Calling system:load3mf('" .. file_path .. "')...")
 
-local tray_obj = tray
-
--- PROBE A: split_meshes = true
-log("--- Probe A: split_meshes = true ---")
-log("Calling system:create3mfimporter('" .. file_path .. "', true, 'ImportedPart_A', tray)...")
-
-local ok, importer = pcall(function()
-    return system:create3mfimporter(file_path, true, "ImportedPart_A", tray_obj)
+local ok, result = pcall(function()
+    return system:load3mf(file_path)
 end)
 
-if ok and importer then
-    log("Importer object created. Type: " .. type(importer))
+if ok then
+    log("Call successful. Result type: " .. type(result))
 
-    local ok_c, count = pcall(function() return importer.meshcount end)
-    if not ok_c then count = 0; log("Failed to read meshcount.") end
-
-    log("importer.meshcount = " .. tostring(count))
-
-    local imported_meshes = {}
-
-    -- Iterate meshes (0-based)
-    for i = 0, count - 1 do
-        log("Retrieving mesh " .. i .. "...")
-
-        -- NEW: Check name via importer directly (Requested Probe)
-        local ok_n, imp_name = pcall(function() return importer:getname(i) end)
-        if ok_n then
-             log("  importer:getname("..i..") = " .. tostring(imp_name))
+    if not result then
+        log("Result is nil. Import failed.")
+    elseif type(result) == 'userdata' or type(result) == 'table' then
+        -- 1. Try to treat it as a single mesh
+        local is_mesh = false
+        local ok_vol, vol = pcall(function() return result.volume end)
+        if ok_vol then
+            is_mesh = true
+            log("Result has .volume ("..tostring(vol).."). Treating as Single Mesh.")
+            add_and_process_mesh(result, "_load3mf")
         end
 
-        local ok_m, mesh = pcall(function() return importer:getmesh(i) end)
-        if ok_m and mesh then
-            log("  Got mesh object (Type: " .. type(mesh) .. ")")
-            local p_mesh = add_and_process_mesh(mesh, "_impA_" .. i)
-            if p_mesh then table.insert(imported_meshes, p_mesh) end
-        else
-            log("  Failed to get mesh " .. i)
-        end
-    end
+        -- 2. Try to treat it as a Group (if not a mesh, or even if it is?)
+        if not is_mesh then
+            log("Result does not appear to be a single mesh (no volume). Checking if Group/List...")
 
-    -- Logic for Support Assignment Probe
-    if #imported_meshes >= 2 then
-        log("Multiple meshes imported (".. #imported_meshes .."). Probing manual support assignment...")
-        local main = imported_meshes[1] -- First mesh usually part
-        local supp = imported_meshes[2] -- Second mesh usually support
+            -- Check for numerical indexing (List)
+            if result[1] or result[0] then
+                log("Result has numerical index. Iterating as List...")
+                for k, v in pairs(result) do
+                    if type(v) == 'userdata' or type(v) == 'table' then
+                        add_and_process_mesh(v, "_load3mf_idx" .. k)
+                    end
+                end
 
-        log("  Attempting to assign '" .. supp.name .. "' as support for '" .. main.name .. "'...")
-
-        -- Probe 1: assignsupport(mesh)
-        local ok_as, res_as = pcall(function() return main:assignsupport(supp) end)
-        if ok_as then
-            log("    assignsupport(mesh): Success!")
-        else
-            log("    assignsupport(mesh): Failed - " .. tostring(res_as))
-
-            -- Probe 2: assignsupport(mesh, false)
-            local ok_as2, res_as2 = pcall(function() return main:assignsupport(supp, false) end)
-            if ok_as2 then
-                log("    assignsupport(mesh, false): Success!")
+            -- Check for child interface (Group)
+            elseif result.count or result.childcount then
+                local count = result.count or result.childcount
+                log("Result looks like a Group (count="..tostring(count)..")")
+                -- Usually groups in Netfabb use :getchild(i)
+                for i = 0, count - 1 do -- Assuming 0-based
+                    local ok_c, child = pcall(function() return result:getchild(i) end)
+                    if ok_c and child then
+                        add_and_process_mesh(child, "_load3mf_child" .. i)
+                    end
+                end
             else
-                log("    assignsupport(mesh, false): Failed - " .. tostring(res_as2))
+                log("Result structure is unclear. Inspecting keys:")
+                for k, v in pairs(result) do
+                    if k ~= "mt" then
+                         log("  ["..tostring(k).."] ("..type(v)..")")
+                    end
+                end
+                -- Last ditch: Try to add the object itself to tray anyway
+                add_and_process_mesh(result, "_load3mf_raw")
             end
         end
-
-    elseif #imported_meshes == 1 then
-        log("Single mesh imported via Split=True. Inspecting log above for 'getname' results.")
-    else
-        log("No meshes imported via Probe A.")
-    end
-
-else
-    log("create3mfimporter Probe A call failed: " .. tostring(importer))
-end
-
-
--- PROBE B: split_meshes = false
--- Goal: Test if supports come in attached as a property when merging.
-log("--- Probe B: split_meshes = false ---")
-log("Calling system:create3mfimporter('" .. file_path .. "', false, 'ImportedPart_B', tray)...")
-
-local ok_b, importer_b = pcall(function()
-    return system:create3mfimporter(file_path, false, "ImportedPart_B", tray_obj)
-end)
-
-if ok_b and importer_b then
-    log("Importer B object created.")
-    local ok_c, count = pcall(function() return importer_b.meshcount end)
-    if not ok_c then count = 0 end
-
-    log("importer_b.meshcount = " .. tostring(count))
-
-    for i = 0, count - 1 do
-        local ok_m, mesh = pcall(function() return importer_b:getmesh(i) end)
-        if ok_m and mesh then
-             add_and_process_mesh(mesh, "_impB_merged_" .. i)
-        end
     end
 else
-    log("Probe B failed or skipped.")
+    log("system:load3mf call failed: " .. tostring(result))
 end
-
 
 pcall(function() application:triggerdesktopevent('updateparts') end)
 log("--- Diagnostic Complete ---")
