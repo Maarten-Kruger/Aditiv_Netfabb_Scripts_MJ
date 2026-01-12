@@ -1,6 +1,6 @@
 -- Diagnostic_3MF_Importer.lua
 -- Diagnostic script to test 3MF import methods and support editability.
--- Updates: Added loadfabbproject and executemenucommand tests.
+-- Updates: Added system:importfile test (Test 3) and retained previous tests.
 
 local function log(msg)
     if system and system.log then
@@ -8,7 +8,7 @@ local function log(msg)
     end
 end
 
-log("--- Starting Diagnostic_3MF_Importer (Project Mode) ---")
+log("--- Starting Diagnostic_3MF_Importer (importfile Focus) ---")
 
 -- 1. File Selection
 log("Opening file dialog...")
@@ -26,37 +26,11 @@ if system and system.logtofile then
 end
 log("Selected file: " .. file_path)
 
--- Helper: Inspect object
-local function inspect_object(obj, name)
-    log("Inspecting " .. name .. " (" .. type(obj) .. "):")
-    if type(obj) == 'table' then
-        for k, v in pairs(obj) do
-            if k ~= "mt" then
-                log("  [" .. tostring(k) .. "] = " .. tostring(v) .. " (" .. type(v) .. ")")
-            end
-        end
-        if obj.mt then
-            log("  Wrapper .mt keys:")
-            for k,v in pairs(obj.mt) do log("    " .. tostring(k)) end
-        end
-    elseif type(obj) == 'userdata' then
-        local mt = getmetatable(obj)
-        if mt then
-            log("  Metatable keys:")
-            for k,v in pairs(mt) do log("    " .. tostring(k)) end
-        else
-            log("  No accessible metatable.")
-        end
-    end
-end
-
-
 -- TEST 1: system:load3mf (Baseline)
 log("--- Test 1: system:load3mf (Baseline) ---")
 local ok1, res1 = pcall(function() return system:load3mf(file_path) end)
 if ok1 then
     log("load3mf success. Result type: " .. type(res1))
-    -- (We skip detailed processing here to focus on the new methods, unless it worked perfectly)
 else
     log("load3mf failed: " .. tostring(res1))
 end
@@ -64,43 +38,74 @@ end
 
 -- TEST 2: system:loadfabbproject
 log("--- Test 2: system:loadfabbproject ---")
-log("Attempting to load .3mf as a project...")
-
 local ok_proj, proj_obj = pcall(function() return system:loadfabbproject(file_path) end)
-
 if ok_proj then
-    log("loadfabbproject call returned success.")
-    if proj_obj then
-        log("Returned object type: " .. type(proj_obj))
-        inspect_object(proj_obj, "ProjectObject")
-
-        -- Try to access trays in the new project?
-        -- The snippet said "You may need to 'activate' it or iterate through its trays."
-
-        -- Check for typical project properties
-        local ok_tc, tc = pcall(function() return proj_obj.traycount end)
-        if ok_tc then
-            log("Project has " .. tostring(tc) .. " trays.")
-        else
-            log("Could not read .traycount from project object.")
-        end
-    else
-        log("Returned object is nil.")
-    end
+    log("loadfabbproject success. Result type: " .. type(proj_obj))
 else
     log("loadfabbproject failed: " .. tostring(proj_obj))
 end
 
 
--- TEST 3: system:executemenucommand(2138)
-log("--- Test 3: system:executemenucommand(2138) ---")
-log("Triggering 'Add Part' dialog command...")
+-- TEST 3: system:importfile (User Requested)
+log("--- Test 3: system:importfile ---")
+log("Calling system:importfile('" .. file_path .. "')...")
 
-local ok_cmd, res_cmd = pcall(function() return system:executemenucommand(2138) end)
-if ok_cmd then
-    log("Command 2138 executed successfully.")
+local ok_imp, importedParts = pcall(function() return system:importfile(file_path) end)
+
+if ok_imp then
+    if importedParts then
+        log("system:importfile returned success. Type: " .. type(importedParts))
+
+        -- Handle table (array of meshes)
+        if type(importedParts) == 'table' then
+            log("Result is a table. Count: " .. (#importedParts or "unknown"))
+
+            for i, trayMesh in ipairs(importedParts) do
+                -- Inspect Mesh Name
+                local mesh_name = "Unknown"
+                pcall(function() mesh_name = trayMesh.name end)
+                log("Part " .. i .. " Name: " .. mesh_name)
+
+                -- Inspect Volume (using getvolume as requested, wrapping in pcall)
+                local vol = "N/A"
+                local ok_vol, v = pcall(function() return trayMesh:getvolume() end)
+                if ok_vol then vol = tostring(v) .. " mm^3" end
+                log("Volume: " .. vol)
+
+                -- Check .issupport
+                local is_supp = false
+                local ok_is, val_is = pcall(function() return trayMesh.issupport end)
+
+                if ok_is and val_is then
+                    log("Status: Recognized as SUPPORT (via .issupport property)")
+                    is_supp = true
+                else
+                    -- Name check fallback
+                    if string.find(string.lower(mesh_name), "support") then
+                        log("Status: Manually identifying as SUPPORT (via Name check)...")
+                        local ok_set, err_set = pcall(function() trayMesh.issupport = true end)
+                        if ok_set then
+                            log("  Set .issupport = true: Success")
+                        else
+                            log("  Set .issupport = true: Failed (" .. tostring(err_set) .. ")")
+                        end
+                    else
+                         log("Status: Standard Mesh")
+                    end
+                end
+
+                -- Add to tray if not implicitly added?
+                -- Usually importfile adds them. Let's log if they are in tray.
+                -- We won't explicitly add them to avoid duplication if importfile does it.
+            end
+        else
+            log("Result is not a table (" .. type(importedParts) .. ").")
+        end
+    else
+        log("system:importfile returned nil.")
+    end
 else
-    log("Command 2138 failed: " .. tostring(res_cmd))
+    log("system:importfile failed (Runtime Error): " .. tostring(importedParts))
 end
 
 log("--- Diagnostic Complete ---")
