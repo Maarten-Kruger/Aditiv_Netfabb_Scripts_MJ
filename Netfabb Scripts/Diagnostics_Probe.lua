@@ -1,6 +1,6 @@
 -- Diagnostics_Probe.lua
 -- Probes for properties on Tray, TrayMesh, and LuaMesh objects.
--- Uses metatable inspection and multiple strategies to find the active tray.
+-- Deep dive into Support objects and Tray Parameters.
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
@@ -33,7 +33,14 @@ end
 function safe_get(obj, key)
     local val = nil
     local ok, err = pcall(function() val = obj[key] end)
-    if ok then return val else return nil end
+    if ok then return val, "OK" else return nil, err end
+end
+
+function safe_call(obj, method_name, ...)
+    if not obj[method_name] then return nil, "Method not found" end
+    local val = nil
+    local ok, err = pcall(function() val = obj[method_name](obj, ...) end)
+    if ok then return val, "OK" else return nil, err end
 end
 
 -- Helper to inspect object metatable
@@ -42,7 +49,6 @@ function dump_meta(obj, obj_name)
     log("--- Inspecting Metatable: " .. obj_name .. " ---")
     local mt = getmetatable(obj)
     if mt then
-        -- Try to find __index
         local index = mt.__index
         if type(index) == "table" then
             log("Fields in __index table:")
@@ -52,161 +58,138 @@ function dump_meta(obj, obj_name)
         else
             log("__index is " .. type(index))
         end
-
-        for k, v in pairs(mt) do
-             if k ~= "__index" then
-                log("  [MT] " .. tostring(k) .. " (" .. type(v) .. ")")
-             end
-        end
     else
         log("No metatable found.")
     end
     log("-------------------------------------------")
 end
 
-log("--- Starting Comprehensive Probe ---")
+log("--- Starting Deep Probe ---")
 log("Log Path: " .. log_path)
 
 -- 1. Determine Active Tray
 local tray = nil
-local tray_source = "None"
-
--- Check global tray (Main Lua Automation)
 if _G.tray then
     tray = _G.tray
-    tray_source = "_G.tray"
-end
-
--- Fallback: Check netfabbtrayhandler for ANY populated tray
-if (not tray) and _G.netfabbtrayhandler then
-    log("Checking netfabbtrayhandler for trays with meshes...")
+    log("Using _G.tray")
+elseif _G.netfabbtrayhandler then
+    -- Find first populated tray
     for i = 0, netfabbtrayhandler.traycount - 1 do
         local t = netfabbtrayhandler:gettray(i)
         if t and t.root and t.root.meshcount > 0 then
             tray = t
-            tray_source = "netfabbtrayhandler:gettray(" .. i .. ")"
+            log("Using netfabbtrayhandler tray " .. i)
             break
         end
     end
-    -- If no populated tray found, just grab the first one
     if not tray and netfabbtrayhandler.traycount > 0 then
-         tray = netfabbtrayhandler:gettray(0)
-         tray_source = "netfabbtrayhandler:gettray(0) (Empty)"
+        tray = netfabbtrayhandler:gettray(0)
+        log("Using netfabbtrayhandler tray 0 (Empty)")
     end
 end
 
 if tray then
-    log("Selected Tray Source: " .. tray_source)
-    dump_meta(tray, "Tray")
+    -------------------------------------------------------------------------
+    -- TRAY PROBE
+    -------------------------------------------------------------------------
+    log("\n=== TRAY DATA PROBE ===")
 
-    -- 2. Probe Tray Properties
-    log("-- Tray Properties Check --")
-    local tray_props = {
-        "buildtime", "totalbuildtime", "estimatedbuildtime", "build_time", "time_estimate",
-        "layerthickness", "sliceheight", "layer_thickness", "thickness", "z_step",
-        "name", "parameters", "settings", "machine", "machineshape"
+    -- List of candidates for Build Time and Layer Thickness
+    local tray_candidates = {
+        "buildtime", "totalbuildtime", "estimatedbuildtime", "timeestimate",
+        "layerthickness", "thickness", "sliceheight", "layerheight",
+        "zstep", "z_step", "layer_thickness"
     }
 
-    for _, p in ipairs(tray_props) do
-        local val = safe_get(tray, p)
-        if val ~= nil then
-            log("  Tray." .. p .. ": " .. tostring(val) .. " (" .. type(val) .. ")")
+    for _, key in ipairs(tray_candidates) do
+        local val, status = safe_get(tray, key)
+        log(string.format("Property '%s': %s (Status: %s)", key, tostring(val), status))
+    end
+
+    -- Try accessing internal tables/settings
+    local settings_containers = {"parameters", "settings", "machine", "config"}
+    for _, key in ipairs(settings_containers) do
+        local val, status = safe_get(tray, key)
+        if val then
+             log(string.format("Container '%s' found (%s). Probing...", key, type(val)))
+             -- If it's a table/userdata, try to find our keys inside it
+             if type(val) == "table" or type(val) == "userdata" then
+                 for _, subkey in ipairs(tray_candidates) do
+                     local subval = nil
+                     pcall(function() subval = val[subkey] end)
+                     if subval then
+                         log(string.format("  -> Found '%s' inside '%s': %s", subkey, key, tostring(subval)))
+                     end
+                 end
+             end
+        else
+             log(string.format("Container '%s': %s", key, tostring(val)))
         end
     end
 
-    -- Check for build time methods
-    local tray_methods = {"getbuildtime", "getestimatedbuildtime", "calctime"}
-    for _, m in ipairs(tray_methods) do
-        local val = nil
-        local ok, err = pcall(function() val = tray[m](tray) end)
-        if ok and val ~= nil then
-             log("  Tray:" .. m .. "(): " .. tostring(val))
-        end
-    end
+    -------------------------------------------------------------------------
+    -- MESH PROBE
+    -------------------------------------------------------------------------
+    log("\n=== MESH DATA PROBE ===")
 
-    -- 3. Probe Mesh Properties
     if tray.root and tray.root.meshcount > 0 then
-        local tm = tray.root:getmesh(0)
-        log("Got TrayMesh 0: " .. safe_get(tm, "name"))
+        -- Find a mesh that has supports if possible, otherwise just the first one
+        local target_mesh = tray.root:getmesh(0)
 
-        dump_meta(tm, "TrayMesh")
+        -- Try to find one with "support" property not nil
+        for i = 0, tray.root.meshcount - 1 do
+            local m = tray.root:getmesh(i)
+            if m.support then
+                target_mesh = m
+                log("Found mesh with supports at index " .. i)
+                break
+            end
+        end
 
-        log("-- TrayMesh Properties Check --")
-        local tm_props = {"supportvolume", "volume", "partvolume", "meshvolume", "selected", "outbox"}
-        for _, p in ipairs(tm_props) do
-            local val = safe_get(tm, p)
-            if val ~= nil then
-                 if p == "outbox" then
-                    log("  TrayMesh.outbox: Found")
-                 else
-                    log("  TrayMesh." .. p .. ": " .. tostring(val))
+        log("Target Mesh: " .. target_mesh.name)
+
+        -- 1. Volumes
+        log("-- Volumes --")
+        local vol_keys = {"volume", "partvolume", "meshvolume", "supportvolume"}
+        for _, key in ipairs(vol_keys) do
+            local val, status = safe_get(target_mesh, key)
+            log(string.format("TrayMesh.%s: %s", key, tostring(val)))
+        end
+
+        -- 2. Outbox (Bounding Box)
+        log("-- Bounding Box --")
+        local ob, status = safe_get(target_mesh, "outbox")
+        if ob then
+            local w = ob.maxx - ob.minx
+            local d = ob.maxy - ob.miny
+            local h = ob.maxz - ob.minz
+            local v = w * d * h
+            log(string.format("TrayMesh.outbox: %f x %f x %f (Vol: %f)", w, d, h, v))
+        else
+            log("TrayMesh.outbox: Nil/Error")
+        end
+
+        -- 3. Support Object Deep Dive
+        log("-- Support Object --")
+        local sup, sup_status = safe_get(target_mesh, "support")
+        if sup then
+            log("TrayMesh.support is present (" .. type(sup) .. ")")
+            dump_meta(sup, "SupportObject")
+
+            -- Probe Support Object
+            local sup_keys = {"volume", "vol", "getvolume", "trianglecount"}
+            for _, key in ipairs(sup_keys) do
+                 local val, s = safe_get(sup, key)
+                 log(string.format("Support.%s: %s", key, tostring(val)))
+
+                 -- Try as method too
+                 local val_m, s_m = safe_call(sup, key)
+                 if s_m == "OK" then
+                     log(string.format("Support:%s(): %s", key, tostring(val_m)))
                  end
             end
-        end
-
-         -- TrayMesh methods
-        local tm_methods = {"getsupportvolume", "calcsupportvolume", "calcvolume", "getvolume", "calcoutbox"}
-        for _, m in ipairs(tm_methods) do
-             local val = nil
-             local ok, err = pcall(function() val = tm[m](tm) end)
-             if ok and val ~= nil then
-                 log("  TrayMesh:" .. m .. "(): " .. tostring(val))
-             end
-        end
-
-        -- TrayMesh Outbox Calc
-        local tm_ob = safe_get(tm, "outbox")
-        if tm_ob then
-             local w = tm_ob.maxx - tm_ob.minx
-             local d = tm_ob.maxy - tm_ob.miny
-             local h = tm_ob.maxz - tm_ob.minz
-             local vol = w * d * h
-             log("  TrayMesh.outbox Volume: " .. vol)
-        end
-
-        -- 4. Probe Underlying LuaMesh
-        local mesh = safe_get(tm, "mesh")
-        if mesh then
-            log("Got LuaMesh")
-            dump_meta(mesh, "LuaMesh")
-
-            log("-- LuaMesh Properties Check --")
-            local m_props = {"volume", "surface", "area", "outbox"}
-            for _, p in ipairs(m_props) do
-                local val = safe_get(mesh, p)
-                if val ~= nil then
-                    log("  LuaMesh." .. p .. ": " .. tostring(val))
-                end
-            end
-
-            local m_methods = {"calcvolume", "calcsurface"}
-            for _, m in ipairs(m_methods) do
-                local val = nil
-                local ok, err = pcall(function() val = mesh[m](mesh) end)
-                if ok and val ~= nil then
-                    log("  LuaMesh:" .. m .. "(): " .. tostring(val))
-                end
-            end
-
-            -- LuaMesh Outbox
-            local m_ob = safe_get(mesh, "outbox")
-             if m_ob then
-                 local w = m_ob.maxx - m_ob.minx
-                 local d = m_ob.maxy - m_ob.miny
-                 local h = m_ob.maxz - m_ob.minz
-                 local vol = w * d * h
-                 log("  LuaMesh.outbox Volume: " .. vol)
-            end
-        end
-
-        -- 5. Check for Support Object Properties
-        log("-- Support Specific Check --")
-        local s_props = {"support", "supports", "supportmesh"}
-        for _, p in ipairs(s_props) do
-            local val = safe_get(tm, p)
-            if val ~= nil then
-                log("  TrayMesh." .. p .. ": Found (" .. type(val) .. ")")
-            end
+        else
+            log("TrayMesh.support is NIL.")
         end
 
     else
@@ -214,7 +197,7 @@ if tray then
     end
 
 else
-    log("No accessible tray found via _G.tray or netfabbtrayhandler.")
+    log("No active tray found.")
 end
 
-log("--- End Probe ---")
+log("--- End Deep Probe ---")
