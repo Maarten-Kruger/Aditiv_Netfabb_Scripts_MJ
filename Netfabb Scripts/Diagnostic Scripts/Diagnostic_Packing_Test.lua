@@ -1,6 +1,14 @@
 -- Diagnostic_Packing_Test.lua
--- Focused diagnostic script for TrueShape 2D Packer.
+-- Diagnostic script to test TrueShape 2D vs Scanline 2D packers.
 -- Forces a repack by moving parts outside the build volume first.
+
+-- ==============================================================================
+-- CONFIGURATION
+-- Select which packer to test:
+-- 0: TrueShape 2D
+-- 1: Scanline 2D (Legacy 2D Packer)
+local PACKER_OPTION = 1 
+-- ==============================================================================
 
 -- Standard Logging Setup
 local function log(msg)
@@ -30,8 +38,9 @@ if system and system.logtofile then
     pcall(function() system:logtofile(log_file_path) end)
 end
 
-log("--- Diagnostic Packing Test Started (TrueShape 2D Only) ---")
+log("--- Diagnostic Packing Test Started ---")
 log("Log file: " .. log_file_path)
+log("Selected Packer Option: " .. tostring(PACKER_OPTION))
 
 -- Helper: Check Matrix Equality
 local function matrix_equals(m1, m2)
@@ -65,7 +74,7 @@ local function move_parts_outside(tray)
     local moved = 0
     for i = 0, tray.root.meshcount - 1 do
         local tm = tray.root:getmesh(i)
-
+        
         -- Check locked
         local is_locked = false
         pcall(function() is_locked = tm.lockedposition end)
@@ -114,44 +123,69 @@ local function main()
     end
 
     log("Tray Size: " .. target_tray.machinesize_x .. " x " .. target_tray.machinesize_y .. " x " .. target_tray.machinesize_z)
-
+    
     -- 1. Move Parts Outside
     move_parts_outside(target_tray)
 
     -- 2. Capture State (Post-Move)
     local pre_pack_state = get_tray_state(target_tray)
 
-    -- 3. Run Monte Carlo Packer (Z-Limit 1mm)
-    log("TEST: Monte Carlo (Z-Limit 1mm)")
-    local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_montecarlo) end)
+    if PACKER_OPTION == 0 then
+        -- TrueShape 2D
+        log("TEST: TrueShape 2D")
+        local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_trueshape) end)
+        
+        if not p_ok or not packer then
+            log("  FAILED to create TrueShape packer.")
+            return
+        end
 
-    if not p_ok or not packer then
-        log("  FAILED to create Monte Carlo packer.")
-        return
-    end
+        pcall(function()
+            packer.packing_2d = true
+            packer.minimaldistance = 1.0
+        end)
+        
+        log("  Running pack()...")
+        local pack_ok, pack_res = pcall(function() return packer:pack() end)
+        if pack_ok then
+            log("  Pack returned code: " .. tostring(pack_res))
+        else
+            log("  Pack CRASHED: " .. tostring(pack_res))
+        end
 
-    -- Configure Packer
-    local cfg_ok, cfg_err = pcall(function()
-        packer.z_limit = 1.0
-        packer.minimaldistance = 1.0
-        packer.packing_quality = -1 -- Default/High
-        packer.start_from_current_positions = false
+    elseif PACKER_OPTION == 1 then
+        -- Scanline 2D
+        log("TEST: Scanline 2D")
+        local p_ok, packer = pcall(function() return target_tray:createpacker(target_tray.packingid_2d) end)
+        
+        if not p_ok or not packer then
+            log("  FAILED to create Scanline packer.")
+            return
+        end
 
-        -- Restrict Rotation: Z-Axis Only
-        pcall(function() packer.defaultpartrotation = 1 end)
-    end)
+        local cfg_ok, cfg_err = pcall(function()
+            -- Standard settings for Scanline packer
+            packer.rastersize = 1       -- "Voxelsize" in GUI
+            packer.anglecount = 7       -- "Zrotation" steps
+            packer.coarsening = 1       -- "Accuracy"
+            packer.placeoutside = true  -- Place non-fitting parts outside
+            packer.packonlyselected = false
+            packer.borderspacingxy = 1.0
+        end)
 
-    if not cfg_ok then
-        log("  Error configuring packer: " .. tostring(cfg_err))
-    end
+        if not cfg_ok then
+            log("  Error configuring packer: " .. tostring(cfg_err))
+        end
 
-    log("  Running pack()...")
-    local pack_ok, pack_res = pcall(function() return packer:pack() end)
-
-    if pack_ok then
-        log("  Pack returned code: " .. tostring(pack_res))
+        log("  Running pack()...")
+        local pack_ok, pack_res = pcall(function() return packer:pack() end)
+        if pack_ok then
+            log("  Pack returned code: " .. tostring(pack_res))
+        else
+            log("  Pack CRASHED: " .. tostring(pack_res))
+        end
     else
-        log("  Pack CRASHED: " .. tostring(pack_res))
+        log("Invalid PACKER_OPTION selected.")
     end
 
     -- 4. Verification
