@@ -1,7 +1,7 @@
 -- Diagnostics_Probe.lua
 -- Probes for properties on Tray, TrayMesh, and LuaMesh objects.
 -- Deep dive into Support objects and Tray Parameters.
--- Fixed invalid property access errors.
+-- Fixed invalid property access errors in safe_call.
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
@@ -38,10 +38,25 @@ function safe_get(obj, key)
 end
 
 function safe_call(obj, method_name)
-    if not obj[method_name] then return nil, "Method not found" end
+    -- Wrap the method lookup in pcall because obj[method_name] can throw errors on Netfabb objects
+    local method = nil
+    local ok_get, err_get = pcall(function() method = obj[method_name] end)
+
+    if not ok_get then
+        return nil, "Error looking up method: " .. tostring(err_get)
+    end
+
+    if not method then
+        return nil, "Method not found (nil)"
+    end
+
+    if type(method) ~= "function" then
+        return nil, "Property exists but is not a function (" .. type(method) .. ")"
+    end
+
     local val = nil
-    local ok, err = pcall(function() val = obj[method_name](obj) end)
-    if ok then return val, "OK" else return nil, err end
+    local ok_call, err_call = pcall(function() val = method(obj) end)
+    if ok_call then return val, "OK" else return nil, err_call end
 end
 
 -- Helper to inspect object metatable
@@ -59,13 +74,19 @@ function dump_meta(obj, obj_name)
         else
             log("__index is " .. type(index))
         end
+        -- Dump actual keys if accessible
+        for k,v in pairs(mt) do
+            if k ~= "__index" then
+                 log("  [MT] " .. tostring(k) .. " (" .. type(v) .. ")")
+            end
+        end
     else
         log("No metatable found.")
     end
     log("-------------------------------------------")
 end
 
-log("--- Starting Deep Probe v3 ---")
+log("--- Starting Deep Probe v4 ---")
 log("Log Path: " .. log_path)
 
 -- 1. Determine Active Tray
@@ -90,71 +111,55 @@ end
 
 if tray then
     -------------------------------------------------------------------------
-    -- TRAY PROBE (New Strategies)
+    -- TRAY PROBE
     -------------------------------------------------------------------------
     log("\n=== TRAY DATA PROBE ===")
 
-    -- Strategy 1: Project Level (fabbproject)
-    if _G.fabbproject then
-        log("fabbproject available.")
-        -- Does project have build time?
-        local proj_props = {"buildtime", "totalbuildtime"}
-        for _, key in ipairs(proj_props) do
-            local val, status = safe_get(fabbproject, key)
-            if val then log("fabbproject." .. key .. ": " .. tostring(val)) end
-        end
-    else
-        log("fabbproject NOT available.")
-    end
-
-    -- Strategy 2: Slice Information
-    -- Build time often comes from slice data.
+    -- Try Slice (with safe_call fix)
     local slice = nil
     local s_val, s_stat = safe_get(tray, "slice")
     if s_val then
         log("Tray has .slice property (" .. type(s_val) .. ")")
         slice = s_val
     else
-        -- Try getslice()
         local s2_val, s2_stat = safe_call(tray, "getslice")
         if s2_val then
              log("Tray:getslice() returned (" .. type(s2_val) .. ")")
              slice = s2_val
+        else
+             log("Tray:getslice() failed: " .. tostring(s2_stat))
         end
     end
 
     if slice then
         dump_meta(slice, "SliceObject")
-        local slice_props = {"buildtime", "layerthickness", "zstep", "layercount"}
+        local slice_props = {"buildtime", "layerthickness", "layersize", "zstep", "layercount"}
         for _, key in ipairs(slice_props) do
             local val, status = safe_get(slice, key)
              log("Slice." .. key .. ": " .. tostring(val) .. " (" .. status .. ")")
         end
-    else
-        log("No slice object found on tray.")
     end
 
-    -- Strategy 3: Machine / Build Room Parameters
-    -- Sometimes it's in tray.machine_type or similar
-    local m_props = {"machine", "machinetype", "machine_type"}
-    for _, key in ipairs(m_props) do
-         local val, status = safe_get(tray, key)
-         if val then log("Tray." .. key .. ": " .. tostring(val)) end
-    end
-
-    -- Strategy 4: Generic "info" or "GetParam" methods?
-    -- Often in Lua bindings there is a generic parameter getter
-    local param_methods = {"getparam", "getparameter", "getsetting", "get_parameter"}
-    for _, m in ipairs(param_methods) do
-        if tray[m] then
-             log("Tray has method: " .. m)
-             -- Try calling with common keys? (Dangerous without knowing signature)
+    -------------------------------------------------------------------------
+    -- SYSTEM PROBE
+    -------------------------------------------------------------------------
+    log("\n=== SYSTEM / GLOBAL PROBE ===")
+    if system then
+        dump_meta(system, "System")
+        local sys_props = {"machine", "buildroom", "layerthickness", "buildtime"}
+        for _, key in ipairs(sys_props) do
+             local val, status = safe_get(system, key)
+             if val then log("system." .. key .. ": " .. tostring(val)) end
         end
     end
 
+    if application then
+        log("application object found.")
+        dump_meta(application, "Application")
+    end
 
     -------------------------------------------------------------------------
-    -- MESH PROBE (Verified working: volume, outbox, support.volume)
+    -- MESH PROBE
     -------------------------------------------------------------------------
     log("\n=== MESH DATA PROBE ===")
 
@@ -191,11 +196,8 @@ if tray then
         -- 3. Support Volume
         local sup, sup_stat = safe_get(target_mesh, "support")
         if sup then
-            -- We know .volume works now
             local s_vol, s_v_stat = safe_get(sup, "volume")
             log("Support.volume: " .. tostring(s_vol) .. " (" .. s_v_stat .. ")")
-
-            -- Don't probe .vol or others that caused errors
         else
             log("TrayMesh.support: Nil")
         end
@@ -208,4 +210,4 @@ else
     log("No active tray found.")
 end
 
-log("--- End Deep Probe v3 ---")
+log("--- End Deep Probe v4 ---")
