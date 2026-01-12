@@ -99,12 +99,12 @@ log("--- Testing Method 2: system:create3mfimporter ---")
 
 local tray_obj = tray
 
--- Trying the specific signature that worked
--- system:create3mfimporter(path, split_meshes, name, tray)
-log("Calling system:create3mfimporter('" .. file_path .. "', true, 'ImportedPart', tray)...")
+-- PROBE A: split_meshes = true
+log("--- Probe A: split_meshes = true ---")
+log("Calling system:create3mfimporter('" .. file_path .. "', true, 'ImportedPart_A', tray)...")
 
 local ok, importer = pcall(function()
-    return system:create3mfimporter(file_path, true, "ImportedPart", tray_obj)
+    return system:create3mfimporter(file_path, true, "ImportedPart_A", tray_obj)
 end)
 
 if ok and importer then
@@ -118,13 +118,19 @@ if ok and importer then
     local imported_meshes = {}
 
     -- Iterate meshes (0-based)
-    -- If count is 0, we do nothing. If count is 1, index 0.
     for i = 0, count - 1 do
         log("Retrieving mesh " .. i .. "...")
+
+        -- NEW: Check name via importer directly (Requested Probe)
+        local ok_n, imp_name = pcall(function() return importer:getname(i) end)
+        if ok_n then
+             log("  importer:getname("..i..") = " .. tostring(imp_name))
+        end
+
         local ok_m, mesh = pcall(function() return importer:getmesh(i) end)
         if ok_m and mesh then
             log("  Got mesh object (Type: " .. type(mesh) .. ")")
-            local p_mesh = add_and_process_mesh(mesh, "_imp_" .. i)
+            local p_mesh = add_and_process_mesh(mesh, "_impA_" .. i)
             if p_mesh then table.insert(imported_meshes, p_mesh) end
         else
             log("  Failed to get mesh " .. i)
@@ -156,17 +162,42 @@ if ok and importer then
         end
 
     elseif #imported_meshes == 1 then
-        log("Single mesh imported. It should contain supports if the 3MF had them.")
-        -- The check_support in add_and_process_mesh already logged this.
-        -- If support is missing here, it means create3mfimporter didn't load it or merged it non-parametrically.
-
+        log("Single mesh imported via Split=True. Inspecting log above for 'getname' results.")
     else
-        log("No meshes imported.")
+        log("No meshes imported via Probe A.")
     end
 
 else
-    log("create3mfimporter call failed: " .. tostring(importer))
+    log("create3mfimporter Probe A call failed: " .. tostring(importer))
 end
+
+
+-- PROBE B: split_meshes = false
+-- Goal: Test if supports come in attached as a property when merging.
+log("--- Probe B: split_meshes = false ---")
+log("Calling system:create3mfimporter('" .. file_path .. "', false, 'ImportedPart_B', tray)...")
+
+local ok_b, importer_b = pcall(function()
+    return system:create3mfimporter(file_path, false, "ImportedPart_B", tray_obj)
+end)
+
+if ok_b and importer_b then
+    log("Importer B object created.")
+    local ok_c, count = pcall(function() return importer_b.meshcount end)
+    if not ok_c then count = 0 end
+
+    log("importer_b.meshcount = " .. tostring(count))
+
+    for i = 0, count - 1 do
+        local ok_m, mesh = pcall(function() return importer_b:getmesh(i) end)
+        if ok_m and mesh then
+             add_and_process_mesh(mesh, "_impB_merged_" .. i)
+        end
+    end
+else
+    log("Probe B failed or skipped.")
+end
+
 
 pcall(function() application:triggerdesktopevent('updateparts') end)
 log("--- Diagnostic Complete ---")
