@@ -15,7 +15,23 @@ log("--- Script Started: CSV Export with Detailed Logging ---")
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
-local ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Export Folder", "C:\\", true) end)
+
+local ok_input, input_path = false, nil
+local default_path = "C:\\"
+local title = "Select Export Folder"
+
+-- Try with 3 arguments (Title, DefaultPath, ShowNewFolderButton)
+ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path, true) end)
+
+-- Retry with 2 arguments if failed (API variation)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path) end)
+end
+
+-- Fallback to system:inputdlg if still failed (Function missing or broken)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:inputdlg(title, title, default_path) end)
+end
 
 if ok_input and input_path and input_path ~= "" then
     path_variable = input_path
