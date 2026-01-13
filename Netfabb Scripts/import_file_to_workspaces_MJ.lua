@@ -138,147 +138,154 @@ log("Found Workspace ID: " .. workspaceID)
 
 
 -- 4. Batch Process Loop
-local xmlfilelist = system:getallfilesindirectory(import_path)
+local success_loop, err_loop = pcall(function()
+    local xmlfilelist = system:getallfilesindirectory(import_path)
 
-if xmlfilelist then
-    local numberoffiles = xmlfilelist.childcount
-    log("Found " .. numberoffiles .. " files in directory.")
+    if xmlfilelist then
+        local numberoffiles = xmlfilelist.childcount
+        log("Found " .. numberoffiles .. " files in directory.")
 
-    -- Loop through the directory
-    for i = 0, numberoffiles - 1 do
-        local xmlChild = xmlfilelist:getchildindexed(i)
-        local full_path = xmlChild:getchildvalue("filename")
+        -- Loop through the directory
+        for i = 0, numberoffiles - 1 do
+            local xmlChild = xmlfilelist:getchildindexed(i)
+            local full_path = xmlChild:getchildvalue("filename")
 
-        -- Extract extension and filename
-        local path, file, ext = string.match(full_path, "(.-)([^\\/]-%.?([^%.\\/]*))$")
+            -- Extract extension and filename
+            local path, file, ext = string.match(full_path, "(.-)([^\\/]-%.?([^%.\\/]*))$")
 
-        -- Safe check for ext
-        if ext then
-            local lower_ext = string.lower(ext)
+            -- Safe check for ext
+            if ext then
+                local lower_ext = string.lower(ext)
 
-            -- Prepare clean name (remove extension)
-            local clean_name = file:match("(.+)%..+") or file
+                -- Prepare clean name (remove extension)
+                local clean_name = file:match("(.+)%..+") or file
 
-            local processed = false
-            local partMesh = loadfile(full_path, lower_ext)
-            local isCAD = is_cad_extension(lower_ext)
+                local processed = false
+                local partMesh = loadfile(full_path, lower_ext)
+                local isCAD = is_cad_extension(lower_ext)
 
-            if partMesh then
-                log("Processing Mesh file: " .. file)
-                -- Create a new workspace (tray)
-                local newTray = trayHandler:addworkspace(workspaceID)
+                if partMesh then
+                    log("Processing Mesh file: " .. file)
+                    -- Create a new workspace (tray)
+                    local newTray = trayHandler:addworkspace(workspaceID)
 
-                if newTray then
-                    -- Add mesh to the tray
-                    local partTrayMesh = newTray.root:addmesh(partMesh)
+                    if newTray then
+                        -- Add mesh to the tray
+                        local partTrayMesh = newTray.root:addmesh(partMesh)
 
-                    if partTrayMesh then
-                        partTrayMesh.name = clean_name
+                        if partTrayMesh then
+                            partTrayMesh.name = clean_name
 
-                        -- Manual Centering Logic
-                        local mx = newTray.machinesize_x or 100
-                        local my = newTray.machinesize_y or 100
+                            -- Manual Centering Logic
+                            local mx = newTray.machinesize_x or 100
+                            local my = newTray.machinesize_y or 100
 
-                        -- Get Part Bounding Box
-                        local outbox = partTrayMesh.outbox
-                        if not outbox then
-                             pcall(function() partTrayMesh:calcoutbox() end)
-                             outbox = partTrayMesh.outbox
-                        end
+                            -- Get Part Bounding Box
+                            local outbox = partTrayMesh.outbox
+                            if not outbox then
+                                 pcall(function() partTrayMesh:calcoutbox() end)
+                                 outbox = partTrayMesh.outbox
+                            end
 
-                        if outbox then
-                            local cx = (outbox.minx + outbox.maxx) / 2.0
-                            local cy = (outbox.miny + outbox.maxy) / 2.0
-                            local min_z = outbox.minz
+                            if outbox then
+                                local cx = (outbox.minx + outbox.maxx) / 2.0
+                                local cy = (outbox.miny + outbox.maxy) / 2.0
+                                local min_z = outbox.minz
 
-                            local tx = (mx / 2.0) - cx
-                            local ty = (my / 2.0) - cy
-                            local tz = -min_z
+                                local tx = (mx / 2.0) - cx
+                                local ty = (my / 2.0) - cy
+                                local tz = -min_z
 
-                            partTrayMesh:translate(tx, ty, tz)
-                            log("Added and centered: " .. clean_name)
+                                partTrayMesh:translate(tx, ty, tz)
+                                log("Added and centered: " .. clean_name)
+                            else
+                                log("Added " .. clean_name .. " but could not center (no bounding box).")
+                            end
+                            processed = true
                         else
-                            log("Added " .. clean_name .. " but could not center (no bounding box).")
+                            log("Loaded but failed to add to tray: " .. file)
                         end
-                        processed = true
                     else
-                        log("Loaded but failed to add to tray: " .. file)
+                         log("Failed to create new workspace for file: " .. file)
                     end
-                else
-                     log("Failed to create new workspace for file: " .. file)
-                end
 
-            elseif isCAD then
-                log("Processing CAD file: " .. file)
-                -- Create a new workspace (tray)
-                local newTray = trayHandler:addworkspace(workspaceID)
+                elseif isCAD then
+                    log("Processing CAD file: " .. file)
+                    -- Create a new workspace (tray)
+                    local newTray = trayHandler:addworkspace(workspaceID)
 
-                if newTray then
-                    -- Capture mesh count before
-                    local initial_count = newTray.root.meshcount
+                    if newTray then
+                        -- Capture mesh count before
+                        local initial_count = newTray.root.meshcount
 
-                    -- Import CAD
-                    loadcadfile(full_path, newTray.root)
+                        -- Import CAD
+                        loadcadfile(full_path, newTray.root)
 
-                    local final_count = newTray.root.meshcount
-                    local added_count = final_count - initial_count
+                        local final_count = newTray.root.meshcount
+                        local added_count = final_count - initial_count
 
-                    if added_count > 0 then
-                        log("Imported " .. added_count .. " meshes from CAD file.")
+                        if added_count > 0 then
+                            log("Imported " .. added_count .. " meshes from CAD file.")
 
-                        -- Iterate over new meshes to rename
-                        for j = initial_count, final_count - 1 do
-                             local tm = nil
-                             -- Try getmesh first (standard for TrayRoot)
-                             pcall(function() tm = newTray.root:getmesh(j) end)
+                            -- Iterate over new meshes to rename
+                            for j = initial_count, final_count - 1 do
+                                 local tm = nil
+                                 -- Try getmesh first (standard for TrayRoot)
+                                 pcall(function() tm = newTray.root:getmesh(j) end)
 
-                             if not tm then
-                                 -- Fallback to getchild
-                                 pcall(function() tm = newTray.root:getchild(j) end)
-                             end
-
-                             if tm then
-                                 -- Rename
-                                 if added_count == 1 then
-                                     tm.name = clean_name
-                                 else
-                                     tm.name = clean_name .. " (" .. (j - initial_count + 1) .. ")"
+                                 if not tm then
+                                     -- Fallback to getchild
+                                     pcall(function() tm = newTray.root:getchild(j) end)
                                  end
 
-                                 -- Center if single part
-                                 if added_count == 1 then
-                                     local mx = newTray.machinesize_x or 100
-                                     local my = newTray.machinesize_y or 100
-                                     local outbox = tm.outbox
-                                     if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
-                                     if outbox then
-                                         local cx = (outbox.minx + outbox.maxx) / 2.0
-                                         local cy = (outbox.miny + outbox.maxy) / 2.0
-                                         local min_z = outbox.minz
-                                         local tx = (mx / 2.0) - cx
-                                         local ty = (my / 2.0) - cy
-                                         local tz = -min_z
-                                         tm:translate(tx, ty, tz)
+                                 if tm then
+                                     -- Rename
+                                     if added_count == 1 then
+                                         tm.name = clean_name
+                                     else
+                                         tm.name = clean_name .. " (" .. (j - initial_count + 1) .. ")"
+                                     end
+
+                                     -- Center if single part
+                                     if added_count == 1 then
+                                         local mx = newTray.machinesize_x or 100
+                                         local my = newTray.machinesize_y or 100
+                                         local outbox = tm.outbox
+                                         if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
+                                         if outbox then
+                                             local cx = (outbox.minx + outbox.maxx) / 2.0
+                                             local cy = (outbox.miny + outbox.maxy) / 2.0
+                                             local min_z = outbox.minz
+                                             local tx = (mx / 2.0) - cx
+                                             local ty = (my / 2.0) - cy
+                                             local tz = -min_z
+                                             tm:translate(tx, ty, tz)
+                                         end
                                      end
                                  end
-                             end
+                            end
+                            processed = true
+                        else
+                            log("CAD import yielded no meshes for: " .. file)
                         end
-                        processed = true
                     else
-                        log("CAD import yielded no meshes for: " .. file)
+                        log("Failed to create workspace for CAD file: " .. file)
                     end
-                else
-                    log("Failed to create workspace for CAD file: " .. file)
+                end
+
+                if processed then
+                   -- Check for GUI update
                 end
             end
-
-            if processed then
-               -- Check for GUI update
-            end
         end
+    else
+        log("Failed to list files in directory: " .. import_path)
     end
-else
-    log("Failed to list files in directory: " .. import_path)
+end)
+
+if not success_loop then
+    log("Critical Error in Batch Loop: " .. tostring(err_loop))
+    pcall(function() system:inputdlg("Script Error", "Error", tostring(err_loop)) end)
 end
 
 -- Trigger Desktop Update
@@ -288,7 +295,6 @@ if application and application.triggerdesktopevent then
 end
 
 -- Completion message
-local ok_msg = pcall(function() system:messagebox("Batch Import to Workspaces Complete!") end)
-if not ok_msg then
-    log("Batch Import Complete!")
+if success_loop then
+    pcall(function() system:inputdlg("Batch Import to Workspaces Complete!", "Status", "Success") end)
 end

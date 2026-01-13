@@ -410,6 +410,7 @@ end)
 if not success_main then
     log("Script Error: " .. tostring(err_main))
     -- If cancelled, we already logged it, but this catches other errors
+    pcall(function() system:inputdlg("Script Error", "Error", tostring(err_main)) end)
 end
 
 -- Cleanup Progress Bar
@@ -420,6 +421,10 @@ end
 -- Update GUI
 if application and application.triggerdesktopevent then
     application:triggerdesktopevent('updateparts')
+end
+
+if success_main then
+    pcall(function() system:inputdlg("Arrangement Complete", "Status", "Success") end)
 end
 
 log("--- Script Complete ---")
