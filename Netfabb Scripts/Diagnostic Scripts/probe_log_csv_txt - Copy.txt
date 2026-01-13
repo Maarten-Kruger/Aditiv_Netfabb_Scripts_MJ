@@ -1,0 +1,32 @@
+[20260112112315] --- Starting Deep Probe v4 (Reverted & Enhanced) ---
+[20260112112315] Log Path: C:\Users\Maarten\OneDrive\Desktop\Bruh\probe_log.txt
+[20260112112315] Using _G.tray
+[20260112112315] 
+=== TRAY DATA PROBE ===
+[20260112112315] Tray:getslice() failed: Error looking up method: [string ""]:43: invalid object method or property: getslice
+[20260112112315] 
+=== SYSTEM / GLOBAL PROBE ===
+[20260112112315] --- Inspecting Metatable: System ---
+[20260112112315] __index is function
+[20260112112315]   [MT] __newindex (function)
+[20260112112315] -------------------------------------------
+[20260112112315] 
+=== MESH DATA PROBE ===
+[20260112112315] Found mesh with supports at index 0
+[20260112112315] Target Mesh: Box
+[20260112112315] TrayMesh.volume: 125000.0078125
+[20260112112315] TrayMesh.outbox Volume: 179779.597082
+[20260112112315] Support.volume: 6565.4711914063 (OK)
+[20260112112315] 
+===========================================
+[20260112112315] ===           SUMMARY REPORT            ===
+[20260112112315] ===========================================
+[20260112112315] DATA POINT                | VALUE
+[20260112112315] --------------------------|----------------
+[20260112112315] Tray Build Time           | nil
+[20260112112315] Tray Layer Thickness      | nil
+[20260112112315] Mesh Bounding Box Vol     | 179779.59708155
+[20260112112315] Mesh Part Volume          | 125000.0078125
+[20260112112315] Mesh Support Volume       | 6565.4711914063
+[20260112112315] ===========================================
+[20260112112315] --- End Deep Probe v4 ---
