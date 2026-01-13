@@ -72,7 +72,7 @@ end
 
 -- 1. Prompt for Directory Path
 local import_path = ""
-local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path to Folder:", "Import Folder Path", "C:\\") end)
+local ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Import Folder", "C:\\", true) end)
 
 if ok_input and input_path and input_path ~= "" then
     import_path = input_path

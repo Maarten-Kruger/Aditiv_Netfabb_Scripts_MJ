@@ -12,7 +12,7 @@ end
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
-local ok_input, input_path = pcall(function() return system:inputdlg("Enter Path to Save CSV:", "Export Folder Path", "C:\\") end)
+local ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Export Folder", "C:\\", true) end)
 
 if ok_input and input_path and input_path ~= "" then
     path_variable = input_path
@@ -32,6 +32,15 @@ end
 if string.sub(path_variable, -1) ~= "\\" then
     path_variable = path_variable .. "\\"
 end
+
+-- Setup Logging
+local log_file_path = path_variable .. "csv_export_log.txt"
+if system and system.logtofile then
+    pcall(function() system:logtofile(log_file_path) end)
+end
+
+log("--- Script Started ---")
+log("CSV Export Path: " .. path_variable)
 
 local csv_file_name = "probe_volumes.csv"
 local csv_path = path_variable .. csv_file_name
