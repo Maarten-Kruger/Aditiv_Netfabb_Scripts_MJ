@@ -111,19 +111,39 @@ function get_build_time(tray)
     -- LIST OF CANDIDATE METHODS
     -- Mix of PDF-derived and standard API guesses
     local candidates = {
-        {name="getTrayAttrib", args={"built_time_estimation_ms"}},
-        {name="gettrayattrib", args={"built_time_estimation_ms"}},
-        {name="getTrayAttribEx", args={"built_time_estimation_ms"}},
-        {name="gettrayattribex", args={"built_time_estimation_ms"}},
-        {name="getAttrib", args={"built_time_estimation_ms"}},
-        {name="getattrib", args={"built_time_estimation_ms"}},
-        {name="get_attribute", args={"built_time_estimation_ms"}},
-        {name="GetAttribute", args={"built_time_estimation_ms"}},
-        {name="getattribute", args={"built_time_estimation_ms"}},
+        -- User says PDF says "BuildTimeEstimation". Script previously tried "built_time_estimation_ms".
+        -- We will try both, plus corrections (build vs built) and other variations.
 
-        {name="getproperty", args={"built_time_estimation_ms"}},
+        -- BuildTimeEstimation (CamelCase)
+        {name="getTrayAttrib", args={"BuildTimeEstimation"}},
+        {name="getTrayAttribEx", args={"BuildTimeEstimation"}},
+        {name="getAttrib", args={"BuildTimeEstimation"}},
+        {name="getProperty", args={"BuildTimeEstimation"}},
+
+        -- built_time_estimation_ms (SnakeCase, original with potential typo 'built')
+        {name="getTrayAttrib", args={"built_time_estimation_ms"}},
+        {name="getTrayAttribEx", args={"built_time_estimation_ms"}},
+        {name="getAttrib", args={"built_time_estimation_ms"}},
         {name="getProperty", args={"built_time_estimation_ms"}},
-        {name="get_property", args={"built_time_estimation_ms"}},
+
+        -- build_time_estimation_ms (SnakeCase, corrected 'build')
+        {name="getTrayAttrib", args={"build_time_estimation_ms"}},
+        {name="getTrayAttribEx", args={"build_time_estimation_ms"}},
+        {name="getAttrib", args={"build_time_estimation_ms"}},
+        {name="getProperty", args={"build_time_estimation_ms"}},
+
+        -- Other variations
+        {name="getTrayAttrib", args={"BuildTime"}},
+        {name="getTrayAttrib", args={"TotalBuildTime"}},
+        {name="getTrayAttrib", args={"TimeEstimation"}},
+        {name="getTrayAttrib", args={"Build-Time Estimation"}}, -- From Title
+
+        -- Lowercase method names (Lua can be case sensitive depending on binding, usually method names are specific)
+        {name="gettrayattrib", args={"built_time_estimation_ms"}},
+        {name="gettrayattribex", args={"built_time_estimation_ms"}},
+        {name="getattrib", args={"built_time_estimation_ms"}},
+        {name="getattribute", args={"built_time_estimation_ms"}},
+        {name="getproperty", args={"built_time_estimation_ms"}},
 
         {name="getparameter", args={"built_time_estimation_ms"}},
         {name="getParameter", args={"built_time_estimation_ms"}},
@@ -151,7 +171,11 @@ function get_build_time(tray)
 
     -- 3. Last Resort: Safe Property Access
     local props_to_check = {
+        "BuildTimeEstimation",
         "built_time_estimation_ms",
+        "build_time_estimation_ms",
+        "BuildTime",
+        "TotalBuildTime",
         "buildtime",
         "estimation",
         "duration",
