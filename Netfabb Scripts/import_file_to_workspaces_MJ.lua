@@ -75,7 +75,23 @@ end
 -- 1. Prompt for Directory Path
 log("--- Starting Batch Import to Workspaces with Detailed Logging ---")
 local import_path = ""
-local ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Import Folder", "C:\\", true) end)
+
+local ok_input, input_path = false, nil
+local default_path = "C:\\"
+local title = "Select Import Folder"
+
+-- Try with 3 arguments (Title, DefaultPath, ShowNewFolderButton)
+ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path, true) end)
+
+-- Retry with 2 arguments if failed (API variation)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path) end)
+end
+
+-- Fallback to system:inputdlg if still failed (Function missing or broken)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:inputdlg(title, title, default_path) end)
+end
 
 if ok_input and input_path and input_path ~= "" then
     import_path = input_path

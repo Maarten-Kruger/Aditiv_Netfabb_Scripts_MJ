@@ -7,7 +7,20 @@ local is_cylinder = true   -- Set to true if the build platform is cylindrical
 local save_path = ""
 
 -- 1. Popup for Filepath
-local ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Import Log Folder", "C:\\", true) end)
+local ok_input, input_path = false, nil
+
+-- Try with 3 arguments (Title, DefaultPath, ShowNewFolderButton)
+ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Import Log Folder", "C:\\", true) end)
+
+-- Retry with 2 arguments if failed (API variation)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:showdirectoryselectdialog("Select Import Log Folder", "C:\\") end)
+end
+
+-- Fallback to system:inputdlg if still failed (Function missing or broken)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:inputdlg("Select Import Log Folder", "Import Log Folder", "C:\\") end)
+end
 
 if ok_input and input_path and input_path ~= "" then
     save_path = input_path
