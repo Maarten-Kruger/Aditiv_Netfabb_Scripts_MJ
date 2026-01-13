@@ -96,7 +96,7 @@ local success_main, err_main = pcall(function()
     -- Collect Data
     local csv_lines = {}
     -- Header: Build Time is LAST
-    table.insert(csv_lines, "Tray Name,Mesh Name,Part Volume,Bounding Box Volume,Support Volume,Tray Build Time")
+    table.insert(csv_lines, "Tray Name,Mesh Name,Part Volume (Single),Total Part Volume,Bounding Box Volume,Support Volume (Single),Total Support Volume,Tray Build Time")
 
     local tray_handler = _G.netfabbtrayhandler
     local tray_count = 0
@@ -173,8 +173,16 @@ local success_main, err_main = pcall(function()
                             log("  No support object found.")
                         end
 
+                        -- 4. Calculate Totals (Assuming homogenous tray filled by duplicate_and_arrange)
+                        local mesh_count = tray.root.meshcount
+                        local total_part_vol = vol * mesh_count
+                        local total_sup_vol = sup_vol * mesh_count
+                        log("  Mesh Count in Tray: " .. mesh_count)
+                        log("  Total Part Volume: " .. total_part_vol)
+                        log("  Total Support Volume: " .. total_sup_vol)
+
                         -- Add Row (Build Time at End)
-                        local row = string.format("%s,%s,%f,%f,%f,%s", tray_name, name, vol, bb_vol, sup_vol, b_time)
+                        local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
                         table.insert(csv_lines, row)
                         log("  Added CSV Row: " .. row)
                     else
@@ -230,7 +238,15 @@ local success_main, err_main = pcall(function()
                              log("  No support object found.")
                         end
 
-                        local row = string.format("%s,%s,%f,%f,%f,%s", tray_name, name, vol, bb_vol, sup_vol, b_time)
+                        -- 4. Calculate Totals
+                        local mesh_count = tray.root.meshcount
+                        local total_part_vol = vol * mesh_count
+                        local total_sup_vol = sup_vol * mesh_count
+                        log("  Mesh Count in Tray: " .. mesh_count)
+                        log("  Total Part Volume: " .. total_part_vol)
+                        log("  Total Support Volume: " .. total_sup_vol)
+
+                        local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
                         table.insert(csv_lines, row)
                         log("  Added CSV Row: " .. row)
                     else
