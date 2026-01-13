@@ -169,6 +169,8 @@ local function process_tray(current_tray, tray_name)
     local part_area = 0.0
     local luamesh = template_part.mesh
 
+    -- With the outbox area --
+
     local success, area = pcall(function() return luamesh:outboxbasearea() end)
     if success and area and area > 0 then
         part_area = area
@@ -186,6 +188,18 @@ local function process_tray(current_tray, tray_name)
             log("Failed to retrieve outbox.")
         end
     end
+
+
+    -- With the shadow area --
+    --[[
+    local success, area = pcall(function() return luamesh:shadowarea() end)
+    if success and area and area > 0 then
+        part_area = area
+        log("Part Area (from shadowarea): " .. part_area)
+    else
+        log("shadowarea failed.")
+    end
+    --]]
 
     if part_area <= 0 then
         log("Critical Error: Could not calculate valid part area. Skipping tray.")
