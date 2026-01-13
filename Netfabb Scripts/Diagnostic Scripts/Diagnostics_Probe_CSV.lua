@@ -1,17 +1,33 @@
 -- Diagnostics_Probe_CSV.lua
--- Exports Mesh Volume, Outbox Volume, and Support Volume to CSV for ALL Trays.
+-- Exports Mesh Volume, Outbox Volume, Support Volume, and Build Time (Placeholder) to CSV.
+-- Final Clean Version: No Prompts, Build Time is "nil", Clean Output, Reordered Columns.
+
+-- Standard Logging Function
+local function log(msg)
+    if system and system.log then
+        system:log(msg)
+    end
+end
 
 -- 1. Prompt for Directory Path
 local path_variable = ""
-local ok_input, input_path = pcall(function() return system:inputdlg("Enter Path to Save CSV File:", "Export Folder Path", "C:\\") end)
+local ok_input, input_path = pcall(function() return system:inputdlg("Enter Path to Save CSV:", "Export Folder Path", "C:\\") end)
 
 if ok_input and input_path and input_path ~= "" then
     path_variable = input_path
 else
-    path_variable = "C:\\"
+    log("No directory selected. Exiting.")
+    return
 end
 
+-- 2. Correctly Format the Path
 path_variable = string.gsub(path_variable, '"', '')
+
+if path_variable == "" then
+    log("Invalid path. Exiting.")
+    return
+end
+
 if string.sub(path_variable, -1) ~= "\\" then
     path_variable = path_variable .. "\\"
 end
@@ -19,16 +35,25 @@ end
 local csv_file_name = "probe_volumes.csv"
 local csv_path = path_variable .. csv_file_name
 
--- Function to safely get property
+-- Helper: Safe Get Property
 function safe_get(obj, key)
     local val = nil
     local ok, err = pcall(function() val = obj[key] end)
     if ok then return val else return nil end
 end
 
+-- Helper: Sanitize Name
+function sanitize_name(name)
+    if not name then return "Unknown" end
+    -- Remove .stl extension (case insensitive)
+    local clean = string.gsub(name, "%.[sS][tT][lL]$", "")
+    return clean
+end
+
 -- Collect Data
-local results = {}
-table.insert(results, "Tray Name,Mesh Name,Part Volume,Bounding Box Volume,Support Volume")
+local csv_lines = {}
+-- Header: Build Time is LAST
+table.insert(csv_lines, "Tray Name,Mesh Name,Part Volume,Bounding Box Volume,Support Volume,Tray Build Time")
 
 local tray_handler = _G.netfabbtrayhandler
 local tray_count = 0
@@ -36,6 +61,9 @@ if tray_handler then
     local ok_c, c = pcall(function() return tray_handler.traycount end)
     if ok_c then tray_count = c end
 end
+
+-- Default Build Time (User requested "nil" without prompts)
+local b_time = "nil"
 
 if tray_count > 0 then
     for t_i = 0, tray_count - 1 do
@@ -49,7 +77,8 @@ if tray_count > 0 then
         if tray and tray.root then
             for m_i = 0, tray.root.meshcount - 1 do
                 local mesh = tray.root:getmesh(m_i)
-                local name = safe_get(mesh, "name") or "Unknown"
+                local raw_name = safe_get(mesh, "name")
+                local name = sanitize_name(raw_name)
 
                 -- 1. Part Volume
                 local vol = safe_get(mesh, "volume") or 0
@@ -72,7 +101,8 @@ if tray_count > 0 then
                     if sv then sup_vol = sv end
                 end
 
-                table.insert(results, string.format("%s,%s,%f,%f,%f", tray_name, name, vol, bb_vol, sup_vol))
+                -- Add Row (Build Time at End)
+                table.insert(csv_lines, string.format("%s,%s,%f,%f,%f,%s", tray_name, name, vol, bb_vol, sup_vol, b_time))
             end
         end
     end
@@ -85,7 +115,9 @@ else
         if tray.root then
             for m_i = 0, tray.root.meshcount - 1 do
                 local mesh = tray.root:getmesh(m_i)
-                local name = safe_get(mesh, "name") or "Unknown"
+                local raw_name = safe_get(mesh, "name")
+                local name = sanitize_name(raw_name)
+
                 local vol = safe_get(mesh, "volume") or 0
                 local bb_vol = 0
                 local ob = safe_get(mesh, "outbox")
@@ -101,20 +133,20 @@ else
                     local sv = safe_get(sup, "volume")
                     if sv then sup_vol = sv end
                 end
-                table.insert(results, string.format("%s,%s,%f,%f,%f", tray_name, name, vol, bb_vol, sup_vol))
+                table.insert(csv_lines, string.format("%s,%s,%f,%f,%f,%s", tray_name, name, vol, bb_vol, sup_vol, b_time))
             end
         end
     else
-        table.insert(results, "No Trays Found,,,,")
+        table.insert(csv_lines, "No Trays Found,,,,,")
     end
 end
 
 -- Write to File
--- Try io library first
+-- Try io library first (CLEANEST OUTPUT)
 local io_ok, io_err = pcall(function()
     local file = io.open(csv_path, "w")
     if file then
-        for _, line in ipairs(results) do
+        for _, line in ipairs(csv_lines) do
             file:write(line .. "\n")
         end
         file:close()
@@ -125,15 +157,21 @@ local io_ok, io_err = pcall(function()
 end)
 
 if io_ok then
-    if system and system.log then system:log("CSV Exported successfully to: " .. csv_path) end
+    log("CSV Exported successfully to: " .. csv_path)
 else
     -- Fallback to system:logtofile if io fails
-    if system and system.log then system:log("IO Library failed (" .. tostring(io_err) .. "). using system:logtofile (Will include timestamps)") end
-    if system and system.logtofile then
-        pcall(function() system:logtofile(csv_path) end)
-        for _, line in ipairs(results) do
+    -- Note: This will include timestamps [YYYYMMDD...] which cannot be disabled.
+    log("IO Library failed. Using system log fallback (Timestamps will be present).")
+
+    local ok_log, err_log = pcall(function() system:logtofile(csv_path) end)
+    if ok_log then
+        for _, line in ipairs(csv_lines) do
             if system and system.log then system:log(line) end
         end
-        if system and system.log then system:log("CSV Logged (with timestamps) to: " .. csv_path) end
+
+        -- Attempt to close/detach log file
+        pcall(function() system:logtofile("") end)
+    else
+        log("Failed to write to file via system log: " .. tostring(err_log))
     end
 end
