@@ -239,8 +239,7 @@ local function process_tray(current_tray, tray_name)
                     local importer = system:create3mfimporter(temp_3mf_path, true, "ImportGroup", current_tray)
                     if not importer then return "Importer creation failed" end
 
-                    local imp_part = nil
-                    local imp_supp = nil
+                    local imported_list = {}
 
                     -- Iterate meshes from importer
                     for m_idx = 0, importer.meshcount - 1 do
@@ -250,23 +249,61 @@ local function process_tray(current_tray, tray_name)
 
                         -- Add to tray
                         local tm = root:addmesh(m)
+                        table.insert(imported_list, { mesh = tm, name = m_name, index = m_idx })
+                        -- log("Debug Loop " .. i .. ": Imported mesh " .. m_idx .. ": " .. m_name)
+                    end
 
-                        -- Identify
-                        -- Matches exported names: safe_part and safe_part .. "_Support"
-                        -- Importer might change names slightly (e.g. invalid chars), but safe_part is already safe.
-                        -- Checks:
-                        if string.find(m_name, "_Support") then
-                            imp_supp = tm
-                        else
-                            -- Assume part if not support (and we only exported two things)
-                            imp_part = tm
+                    local imp_part = nil
+                    local imp_supp = nil
+
+                    -- Identify Logic
+                    -- 1. Try Name Matching
+                    for _, item in ipairs(imported_list) do
+                        if string.find(item.name, "_Support") then
+                            imp_supp = item.mesh
+                        elseif string.find(item.name, safe_part) then
+                            imp_part = item.mesh
+                        end
+                    end
+
+                    -- 2. Fallback: Elimination (If exactly 2 meshes, and one is Part, other is Support)
+                    if not imp_supp and #imported_list == 2 and imp_part then
+                        for _, item in ipairs(imported_list) do
+                            if item.mesh ~= imp_part then
+                                imp_supp = item.mesh
+                                -- log("Debug: Identified support via elimination: " .. item.name)
+                            end
+                        end
+                    end
+
+                    -- 3. Fallback: Index (0 = Part, 1 = Support)
+                    if not imp_part and #imported_list > 0 then
+                        -- Assume 0 is part
+                        for _, item in ipairs(imported_list) do
+                            if item.index == 0 then imp_part = item.mesh end
+                            if item.index == 1 then imp_supp = item.mesh end
                         end
                     end
 
                     -- Re-assign Support
                     if imp_part and imp_supp then
-                        imp_part:assignsupport(imp_supp, false) -- false = absolute coords
-                        root:removemesh(imp_supp)
+                        local as_ok, as_res = pcall(function() return imp_part:assignsupport(imp_supp, false) end)
+                        if as_ok then
+                            -- assignsupport returns nothing/nil on success usually, but verify via property if possible
+                            -- Or just assume success if no error.
+                            -- Remove the support mesh
+                            root:removemesh(imp_supp)
+                        else
+                            log("Error assigning support in loop " .. i .. ": " .. tostring(as_res))
+                        end
+                    elseif #imported_list > 1 then
+                        log("Warning Loop " .. i .. ": Could not identify Part/Support pair. Names: " .. table.concat(
+                            (function()
+                                local t={}
+                                for _,v in ipairs(imported_list) do table.insert(t, v.name) end
+                                return t
+                            end)(), ", ")
+                        )
                     end
 
                     -- Rename
@@ -290,11 +327,21 @@ local function process_tray(current_tray, tray_name)
 
             -- Step C: Cleanup Temp File
             pcall(function()
+                local deleted = false
                 if os and os.remove then
-                    os.remove(temp_3mf_path)
-                    log("Temp file deleted.")
-                else
-                    log("Could not delete temp file (os.remove unavailable).")
+                    local ok, err = os.remove(temp_3mf_path)
+                    if ok then deleted = true end
+                end
+
+                if not deleted and os and os.execute then
+                    -- Fallback to shell command
+                    os.execute("del \"" .. temp_3mf_path .. "\"")
+                    deleted = true -- Assume success or at least tried
+                    log("Attempted delete via shell.")
+                end
+
+                if not deleted then
+                     log("Could not delete temp file (os.remove/execute unavailable).")
                 end
             end)
         end
