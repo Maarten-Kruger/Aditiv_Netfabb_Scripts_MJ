@@ -1,6 +1,6 @@
 -- duplicate_and_arrange_MJ.lua
 -- Duplicates a part in every tray to fill the tray and arranges them.
--- Modified by Jules
+-- Modified by Jules: Added Detailed Logging and Error Popups
 
 local tray_percentage = 0.6 -- Percentage of tray area to fill (0.0 to 1.0)
 local is_cylinder = true   -- Set to true if the build platform is cylindrical
@@ -14,6 +14,7 @@ if ok_input and input_path and input_path ~= "" then
 else
     -- Fallback or exit?
     if system and system.log then system:log("No directory selected. Exiting.") end
+    pcall(function() system:inputdlg("No directory selected. Exiting.", "Error", "Error") end)
     return
 end
 
@@ -22,6 +23,7 @@ save_path = string.gsub(save_path, '"', '')
 
 if save_path == "" then
      if system and system.log then system:log("Invalid path (empty after cleanup).") end
+     pcall(function() system:inputdlg("Invalid path provided.", "Error", "Error") end)
      return
 end
 
@@ -47,7 +49,7 @@ local function log(msg)
     print(msg)
 end
 
-log("--- Script Started ---")
+log("--- Script Started: Duplicate and Arrange with Detailed Logging ---")
 log("Save Path: " .. save_path)
 log("Log file location: " .. log_file_path)
 
@@ -60,8 +62,8 @@ local function update_progress(percent, message)
     if system and system.setprogresscancancel then
         system:setprogresscancancel(percent, message, false)
         if system:progresscancelled() then
-            log("Script cancelled by user.")
-            error("Cancelled")
+            log("Script cancelled by user via progress dialog.")
+            error("Cancelled by user")
         end
     end
 end
@@ -73,10 +75,12 @@ local function process_tray(current_tray, tray_name)
 
     if not current_tray or not current_tray.root then
         log("Error: Tray root not available for " .. tray_name)
+        pcall(function() system:inputdlg("Tray root not available for " .. tray_name, "Error", "Error") end)
         return
     end
 
     local root = current_tray.root
+    log("Initial mesh count in tray: " .. root.meshcount)
 
     -- 2. Cleanup / Overwrite Logic
     -- Keep the first mesh (index 0) as template, delete others.
@@ -85,12 +89,14 @@ local function process_tray(current_tray, tray_name)
         update_progress(10, "Processing " .. tray_name .. ": Cleaning up...")
         local to_remove = {}
         for i = 1, root.meshcount - 1 do
-            table.insert(to_remove, root:getmesh(i))
+            local m = root:getmesh(i)
+            table.insert(to_remove, m)
+            log("Marked for removal: " .. (m.name or "Unknown"))
         end
         for _, m in ipairs(to_remove) do
             root:removemesh(m)
         end
-        log("Removed " .. #to_remove .. " existing parts.")
+        log("Removed " .. #to_remove .. " existing parts. Remaining: " .. root.meshcount)
     end
 
     -- 1. Find a template part
@@ -100,7 +106,8 @@ local function process_tray(current_tray, tray_name)
     end
 
     if not template_part then
-        log("No parts found in " .. tray_name .. ". Skipping.")
+        log("No parts found in " .. tray_name .. ". Skipping tray.")
+        pcall(function() system:inputdlg("No template part found in " .. tray_name, "Warning", "Skipping") end)
         return
     end
 
@@ -112,6 +119,7 @@ local function process_tray(current_tray, tray_name)
     local name_no_ext = string.gsub(raw_name, "%.[sS][tT][lL]$", "")
     -- Remove non-alphanumeric characters
     local safe_part = string.gsub(name_no_ext, "[^%w%-_]", "")
+    log("Safe Name: " .. safe_part)
 
     -- 2.5 Export 3MF of the Template Part (Backup)
     log("Exporting Backup 3MF for " .. template_part.name .. "...")
@@ -124,20 +132,24 @@ local function process_tray(current_tray, tray_name)
 
             if template_part.hassupport then
                 entry:setsupport(template_part.support)
+                log("  Included supports in backup.")
+            else
+                log("  No supports to include in backup.")
             end
 
             -- New Filename Format: [safe_part]_3mf.3mf
             local export_filename = save_path .. safe_part .. "_3mf.3mf"
 
             exporter:exporttofile(export_filename)
-            log("Exported backup to: " .. export_filename)
+            log("Exported backup successfully to: " .. export_filename)
         else
             log("Warning: system:create3mfexporter not available.")
         end
     end)
 
     if not exp_ok then
-        log("Export Failed: " .. tostring(exp_err))
+        log("Backup Export Failed: " .. tostring(exp_err))
+        -- Non-critical, but annoying
     end
 
     -- 3. Calculate Part Area
@@ -149,18 +161,22 @@ local function process_tray(current_tray, tray_name)
         part_area = area
         log("Part Area (from outboxbasearea): " .. part_area)
     else
+        log("outboxbasearea failed or returned 0, attempting outbox calculation...")
         local ob = nil
         pcall(function() ob = template_part.outbox end)
         if ob then
             local width = ob.maxx - ob.minx
             local depth = ob.maxy - ob.miny
             part_area = width * depth
-            log("Part Area (calculated from outbox): " .. part_area)
+            log("Part Area (calculated from outbox): " .. width .. " * " .. depth .. " = " .. part_area)
+        else
+            log("Failed to retrieve outbox.")
         end
     end
 
     if part_area <= 0 then
-        log("Error: Could not calculate valid part area. Skipping tray.")
+        log("Critical Error: Could not calculate valid part area. Skipping tray.")
+        pcall(function() system:inputdlg("Could not calculate part area for " .. template_part.name, "Error", "Error") end)
         return
     end
 
@@ -169,10 +185,12 @@ local function process_tray(current_tray, tray_name)
     local mx = current_tray.machinesize_x
     local my = current_tray.machinesize_y
 
+    log("Machine Size: X=" .. mx .. ", Y=" .. my)
+
     if is_cylinder then
         local radius = mx / 2.0
         tray_area = math.pi * radius * radius
-        log("Tray Area (Cylinder, Diameter=" .. mx .. "): " .. tray_area)
+        log("Tray Area (Cylinder, Radius=" .. radius .. "): " .. tray_area)
     else
         tray_area = mx * my
         log("Tray Area (Box, " .. mx .. " x " .. my .. "): " .. tray_area)
@@ -183,8 +201,8 @@ local function process_tray(current_tray, tray_name)
     local max_count = math.floor(target_fill_area / part_area)
     local duplicates_needed = max_count - 1
 
-    log("Target Fill Area: " .. target_fill_area .. " (" .. (tray_percentage * 100) .. "%)")
-    log("Max Parts: " .. max_count)
+    log("Target Fill Area (" .. (tray_percentage * 100) .. "%): " .. target_fill_area)
+    log("Max Parts Possible: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
     -- 6. Duplicate the part via Export-Import Loop
@@ -194,17 +212,31 @@ local function process_tray(current_tray, tray_name)
 
         -- Step A: Create "Non-Editable" Split Export
         local temp_3mf_path = save_path .. safe_part .. "_noneditable.3mf"
+        log("Creating Temp 3MF at: " .. temp_3mf_path)
+
         local split_export_ok, split_msg = pcall(function()
             local part_geo = nil
             local supp_geo = nil
 
             -- Extract Part
+            log("Splitting Part Geometry...")
             local ok_p, res_p = pcall(function() return template_part:createsupportedmesh(true, false, false, 0.0) end)
-            if ok_p and res_p then part_geo = res_p.mesh end
+            if ok_p and res_p then
+                part_geo = res_p.mesh
+                log("  Part Split Success.")
+            else
+                log("  Part Split Failed: " .. tostring(res_p))
+            end
 
             -- Extract Support
+            log("Splitting Support Geometry...")
             local ok_s, res_s = pcall(function() return template_part:createsupportedmesh(false, true, true, 0.0) end)
-            if ok_s and res_s then supp_geo = res_s.mesh end
+            if ok_s and res_s then
+                supp_geo = res_s.mesh
+                log("  Support Split Success.")
+            else
+                log("  Support Split Failed (might not have supports): " .. tostring(res_s))
+            end
 
             if not part_geo then error("Failed to extract part geometry") end
 
@@ -220,20 +252,23 @@ local function process_tray(current_tray, tray_name)
                 local s_entry = exporter:add(supp_geo)
                 s_entry.name = safe_part .. "_Support"
                 s_entry.grouppath = "Production/Supports"
+                log("  Added support mesh to export.")
             end
 
             exporter:exporttofile(temp_3mf_path)
         end)
 
         if not split_export_ok then
-            log("Error creating temp split export: " .. tostring(split_msg))
+            log("Critical Error creating temp split export: " .. tostring(split_msg))
+            pcall(function() system:inputdlg("Failed to create temp export for duplication: " .. tostring(split_msg), "Critical Error", "Error") end)
             -- Abort duplication if export failed
             duplicates_needed = 0
         else
-            log("Temp split export created at: " .. temp_3mf_path)
+            log("Temp split export created successfully.")
 
             -- Step B: Import Loop
             for i = 1, duplicates_needed do
+                -- log("Duplication Loop Iteration: " .. i) -- Verbose
                 local imp_ok, imp_res = pcall(function()
                     -- Import with split_meshes=true
                     local importer = system:create3mfimporter(temp_3mf_path, true, "ImportGroup", current_tray)
@@ -242,6 +277,7 @@ local function process_tray(current_tray, tray_name)
                     local imported_list = {}
 
                     -- Iterate meshes from importer
+                    -- log("  Importer mesh count: " .. importer.meshcount)
                     for m_idx = 0, importer.meshcount - 1 do
                         local m = importer:getmesh(m_idx)
                         local m_name = "Unknown"
@@ -250,7 +286,7 @@ local function process_tray(current_tray, tray_name)
                         -- Add to tray
                         local tm = root:addmesh(m)
                         table.insert(imported_list, { mesh = tm, name = m_name, index = m_idx })
-                        -- log("Debug Loop " .. i .. ": Imported mesh " .. m_idx .. ": " .. m_name)
+                        -- log("    Imported Mesh " .. m_idx .. ": " .. m_name)
                     end
 
                     local imp_part = nil
@@ -271,7 +307,7 @@ local function process_tray(current_tray, tray_name)
                         for _, item in ipairs(imported_list) do
                             if item.mesh ~= imp_part then
                                 imp_supp = item.mesh
-                                -- log("Debug: Identified support via elimination: " .. item.name)
+                                -- log("    Identified support via elimination: " .. item.name)
                             end
                         end
                     end
@@ -289,15 +325,14 @@ local function process_tray(current_tray, tray_name)
                     if imp_part and imp_supp then
                         local as_ok, as_res = pcall(function() return imp_part:assignsupport(imp_supp, false) end)
                         if as_ok then
-                            -- assignsupport returns nothing/nil on success usually, but verify via property if possible
-                            -- Or just assume success if no error.
                             -- Remove the support mesh
                             root:removemesh(imp_supp)
+                            -- log("    Support reassigned and mesh removed.")
                         else
-                            log("Error assigning support in loop " .. i .. ": " .. tostring(as_res))
+                            log("    Error assigning support in loop " .. i .. ": " .. tostring(as_res))
                         end
                     elseif #imported_list > 1 then
-                        log("Warning Loop " .. i .. ": Could not identify Part/Support pair. Names: " .. table.concat(
+                        log("    Warning Loop " .. i .. ": Could not identify Part/Support pair. Names: " .. table.concat(
                             (function()
                                 local t={}
                                 for _,v in ipairs(imported_list) do table.insert(t, v.name) end
@@ -323,7 +358,7 @@ local function process_tray(current_tray, tray_name)
                  end
             end
 
-            log("Duplication loop complete.")
+            log("Duplication loop complete. Total duplicates added: " .. duplicates_needed)
 
             -- Step C: Cleanup Temp File
             pcall(function()
@@ -336,17 +371,17 @@ local function process_tray(current_tray, tray_name)
                 if not deleted and os and os.execute then
                     -- Fallback to shell command
                     os.execute("del \"" .. temp_3mf_path .. "\"")
-                    deleted = true -- Assume success or at least tried
-                    log("Attempted delete via shell.")
+                    deleted = true
+                    log("Attempted delete via shell for: " .. temp_3mf_path)
                 end
 
                 if not deleted then
-                     log("Could not delete temp file (os.remove/execute unavailable).")
+                     log("Warning: Could not delete temp file (os.remove/execute unavailable): " .. temp_3mf_path)
                 end
             end)
         end
     else
-        log("No duplicates needed.")
+        log("No duplicates needed (Target fill area <= Part area).")
     end
 
     -- 8. Pack the Tray
@@ -357,6 +392,7 @@ local function process_tray(current_tray, tray_name)
         local p_ok, packer = pcall(function() return current_tray:createpacker(current_tray.packingid_2d) end)
         if p_ok and packer then
             -- Configure Packer Settings based on Pack_Trays_Scanline_MJ.lua
+            log("Configuring Packer (Scanline 2D)...")
             local cfg_ok, cfg_err = pcall(function()
                 packer.rastersize = 1       -- Voxel size (mm)
                 packer.anglecount = 7       -- Rotation steps
@@ -364,23 +400,32 @@ local function process_tray(current_tray, tray_name)
                 packer.placeoutside = true  -- Allow placing remaining parts outside
                 packer.borderspacingxy = 1.0 -- Spacing between parts/border
                 packer.packonlyselected = false -- Pack all parts
+
+                log("  rastersize: " .. packer.rastersize)
+                log("  anglecount: " .. packer.anglecount)
+                log("  borderspacingxy: " .. packer.borderspacingxy)
             end)
 
             if cfg_ok then
+                 log("Starting pack execution...")
                  local pack_ok, pack_res = pcall(function() return packer:pack() end)
                  if pack_ok then
                      log("Packing complete (Code: " .. tostring(pack_res) .. ").")
                  else
                      log("Packing failed/crashed: " .. tostring(pack_res))
+                     pcall(function() system:inputdlg("Packing failed for " .. tray_name, "Error", tostring(pack_res)) end)
                  end
             else
                  log("Failed to configure packer: " .. tostring(cfg_err))
+                 pcall(function() system:inputdlg("Packer configuration failed", "Error", tostring(cfg_err)) end)
             end
         else
             log("Failed to create Scanline (packingid_2d) packer.")
+            pcall(function() system:inputdlg("Failed to create packer for " .. tray_name, "Error", "Error") end)
         end
     else
-        log("createpacker method not available.")
+        log("createpacker method not available on tray object.")
+        pcall(function() system:inputdlg("createpacker unavailable for " .. tray_name, "Error", "Error") end)
     end
 
 end
@@ -404,6 +449,7 @@ local success_main, err_main = pcall(function()
         end
     else
         log("Error: 'netfabbtrayhandler' is not available.")
+        pcall(function() system:inputdlg("'netfabbtrayhandler' is missing.", "Critical Error", "Error") end)
     end
 end)
 
