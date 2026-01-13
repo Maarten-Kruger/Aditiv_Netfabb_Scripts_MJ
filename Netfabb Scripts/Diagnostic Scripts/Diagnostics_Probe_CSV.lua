@@ -1,6 +1,6 @@
 -- Diagnostics_Probe_CSV.lua
 -- Exports Mesh Volume, Outbox Volume, Support Volume, and Estimated Build Time to CSV.
--- Now includes DEEP INTROSPECTION to find hidden properties.
+-- Probe v4: Targeting PDF-specific method names for attribute retrieval.
 
 -- Standard Logging Function
 local function log(msg)
@@ -48,7 +48,7 @@ if system and system.logtofile then
     end
 end
 
-log("--- Starting Diagnostics Probe CSV v3 (Deep Introspection) ---")
+log("--- Starting Diagnostics Probe CSV v4 (Targeted Method Probe) ---")
 log("CSV Target: " .. csv_path)
 
 -- Helper: Safe Get Property
@@ -67,77 +67,57 @@ function format_ms(ms)
     return string.format("%02d:%02d:%02d", hours, minutes, secs)
 end
 
--- Helper: Dump Object Keys (Introspection)
-function dump_object(obj, obj_name)
-    if not obj then return end
-    log("  [Introspection] Dumping keys for: " .. obj_name)
-
-    -- 1. Try pairs() (unlikely to work on userdata but worth a shot)
-    local ok_pairs, err_pairs = pcall(function()
-        for k, v in pairs(obj) do
-            log("    KEY: " .. tostring(k) .. " = " .. tostring(v))
-        end
-    end)
-    if not ok_pairs then log("    pairs() failed: " .. tostring(err_pairs)) end
-
-    -- 2. Try getmetatable
-    local mt = getmetatable(obj)
-    if mt then
-        log("    Metatable found.")
-        -- Check __index
-        if mt.__index then
-            if type(mt.__index) == "table" then
-                log("    __index is a table. Keys:")
-                for k, v in pairs(mt.__index) do
-                    log("      [MT] " .. tostring(k) .. " (" .. type(v) .. ")")
-                end
-            else
-                 log("    __index is a function/userdata (" .. type(mt.__index) .. ")")
-            end
-        end
-
-        -- Dump other MT keys
-        for k,v in pairs(mt) do
-            if k ~= "__index" then
-                log("    [MT_Root] " .. tostring(k) .. " = " .. tostring(v))
-            end
-        end
-    else
-        log("    No Metatable found.")
-    end
-end
-
-
--- Helper: Get Build Time with Deep Probing
+-- Helper: Get Build Time with Targeted Probing
 function get_build_time(tray)
     if not tray then return "nil" end
 
-    -- PERFORM INTROSPECTION ONCE PER RUN (or per tray) to find the key
-    dump_object(tray, "TrayObject")
+    log("  [Probing Build Time]")
+    local val = nil
+    local methods_tried = {}
 
-    -- Attempt 1: Direct property access .built_time_estimation_ms
-    local ok_3, res_3 = pcall(function() return tray.built_time_estimation_ms end)
-    if ok_3 and res_3 then
-        return format_ms(tonumber(res_3) or 0) .. " (Direct)"
+    -- LIST OF CANDIDATE METHODS TO TRY
+    -- Derived from PDF: "a_modelData.getTrayAttribEx" and "a_modelData.getTrayAttrib"
+    local candidates = {
+        {name="getTrayAttrib", args={"built_time_estimation_ms"}},
+        {name="gettrayattrib", args={"built_time_estimation_ms"}},
+        {name="getTrayAttribEx", args={"built_time_estimation_ms"}},
+        {name="gettrayattribex", args={"built_time_estimation_ms"}},
+        {name="getAttrib", args={"built_time_estimation_ms"}},
+        {name="getattrib", args={"built_time_estimation_ms"}},
+        {name="getattribute", args={"built_time_estimation_ms"}}, -- Retrying just in case
+        {name="getproperty", args={"built_time_estimation_ms"}},
+        {name="getparameter", args={"built_time_estimation_ms"}},
+        {name="getmachineparameter", args={"built_time_estimation_ms"}},
+        {name="getsetting", args={"built_time_estimation_ms"}}
+    }
+
+    for _, method in ipairs(candidates) do
+        local func_name = method.name
+        local arg = method.args[1]
+
+        -- Check if function exists on object first
+        local func = nil
+        local ok_idx, err_idx = pcall(function() func = tray[func_name] end)
+
+        if ok_idx and func and type(func) == "function" then
+            log("    Function FOUND: tray:" .. func_name)
+            -- Call it
+            local ok_call, res = pcall(function() return tray[func_name](tray, arg) end)
+            if ok_call and res then
+                log("      > SUCCESS: " .. func_name .. " returned " .. tostring(res))
+                return format_ms(tonumber(res) or 0) .. " (" .. func_name .. ")"
+            else
+                log("      > Call failed or returned nil: " .. tostring(res))
+            end
+        else
+            -- Uncomment below for verbose fail logs
+            -- log("    Method missing: " .. func_name)
+        end
     end
 
-    -- Attempt 2: Generic 'buildtime' property
-    local ok_4, res_4 = pcall(function() return tray.buildtime end)
-    if ok_4 and res_4 then
-        return tostring(res_4)
-    end
-
-    -- Attempt 3: Slice Object
-    local slice = safe_get(tray, "slice")
-    if slice then
-         log("    Tray has .slice property. Dumping Slice keys:")
-         dump_object(slice, "SliceObject")
-
-         local bt = safe_get(slice, "buildtime")
-         if bt then
-            return tostring(bt)
-         end
-    end
+    -- Last Resort: Check specific property keys again
+    if tray.built_time_estimation_ms then return format_ms(tray.built_time_estimation_ms) end
+    if tray.buildtime then return tostring(tray.buildtime) end
 
     return "nil"
 end
