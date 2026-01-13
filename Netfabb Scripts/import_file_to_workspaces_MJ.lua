@@ -1,5 +1,5 @@
 -- Batch Load Files to Separate Workspaces (Trays)
--- Modified by Jules
+-- Modified by Jules: Added Detailed Logging and Error Popups
 
 local function log(msg)
     if system and system.log then
@@ -60,6 +60,8 @@ local function loadcadfile(filename, root)
                         root:addmesh(mesh)
                     end
                 end
+            else
+                log("CAD Import: loadmodel returned nil for " .. filename)
             end
         else
             log("CAD import not supported (system:createcadimport missing).")
@@ -71,13 +73,15 @@ local function loadcadfile(filename, root)
 end
 
 -- 1. Prompt for Directory Path
+log("--- Starting Batch Import to Workspaces with Detailed Logging ---")
 local import_path = ""
 local ok_input, input_path = pcall(function() return system:inputdlg("Enter Directory Path to Folder:", "Import Folder Path", "C:\\") end)
 
 if ok_input and input_path and input_path ~= "" then
     import_path = input_path
 else
-    log("No directory selected. Exiting.")
+    log("No directory selected or cancelled. Exiting.")
+    pcall(function() system:inputdlg("No directory selected. Exiting.", "Error", "Error") end)
     return
 end
 
@@ -86,6 +90,7 @@ import_path = string.gsub(import_path, '"', '')
 
 if import_path == "" then
      log("Invalid path (empty after cleanup).")
+     pcall(function() system:inputdlg("Invalid path provided.", "Error", "Error") end)
      return
 end
 
@@ -96,6 +101,7 @@ end
 
 -- Setup Logging
 local log_file_path = import_path .. "import_log.txt"
+log("Log file path: " .. log_file_path)
 
 if system and system.logtofile then
     local ok, err = pcall(function() system:logtofile(log_file_path) end)
@@ -104,7 +110,6 @@ if system and system.logtofile then
     end
 end
 
-log("--- Starting Batch Import to Workspaces ---")
 log("Import path: " .. import_path)
 
 -- Check for required globals
@@ -112,6 +117,7 @@ local trayHandler = _G.netfabbtrayhandler
 
 if not trayHandler then
     log("Error: Global 'netfabbtrayhandler' is missing. Cannot create new workspaces.")
+    pcall(function() system:inputdlg("Global 'netfabbtrayhandler' is missing.", "Critical Error", "Error") end)
     return
 end
 
@@ -129,8 +135,8 @@ local workspaceID = trayHandler:getmachineidentifier(machine_name)
 
 if workspaceID == "" then
     log("Workspace instance not found for '" .. machine_name .. "'.")
-    -- pcall message box
-    pcall(function() system:messagebox("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.") end)
+    -- pcall message box using inputdlg as workaround
+    pcall(function() system:inputdlg("Machine '" .. machine_name .. "' not found. Please ensure the machine is in your 'My Machines' list.", "Error", "Error") end)
     return
 end
 
@@ -179,6 +185,7 @@ local success_loop, err_loop = pcall(function()
                             -- Manual Centering Logic
                             local mx = newTray.machinesize_x or 100
                             local my = newTray.machinesize_y or 100
+                            log("  Machine Size for centering: " .. mx .. " x " .. my)
 
                             -- Get Part Bounding Box
                             local outbox = partTrayMesh.outbox
@@ -192,21 +199,26 @@ local success_loop, err_loop = pcall(function()
                                 local cy = (outbox.miny + outbox.maxy) / 2.0
                                 local min_z = outbox.minz
 
+                                log("  Original Center: " .. cx .. ", " .. cy .. ", Z_min: " .. min_z)
+
                                 local tx = (mx / 2.0) - cx
                                 local ty = (my / 2.0) - cy
                                 local tz = -min_z
 
+                                log("  Applying Translation: " .. tx .. ", " .. ty .. ", " .. tz)
+
                                 partTrayMesh:translate(tx, ty, tz)
-                                log("Added and centered: " .. clean_name)
+                                log("  Added and centered: " .. clean_name)
                             else
-                                log("Added " .. clean_name .. " but could not center (no bounding box).")
+                                log("  Added " .. clean_name .. " but could not center (no bounding box).")
                             end
                             processed = true
                         else
-                            log("Loaded but failed to add to tray: " .. file)
+                            log("  Loaded but failed to add to tray: " .. file)
                         end
                     else
-                         log("Failed to create new workspace for file: " .. file)
+                         log("  Failed to create new workspace for file: " .. file)
+                         pcall(function() system:inputdlg("Failed to create workspace for " .. file, "Error", "Error") end)
                     end
 
                 elseif isCAD then
@@ -225,7 +237,7 @@ local success_loop, err_loop = pcall(function()
                         local added_count = final_count - initial_count
 
                         if added_count > 0 then
-                            log("Imported " .. added_count .. " meshes from CAD file.")
+                            log("  Imported " .. added_count .. " meshes from CAD file.")
 
                             -- Iterate over new meshes to rename
                             for j = initial_count, final_count - 1 do
@@ -260,17 +272,21 @@ local success_loop, err_loop = pcall(function()
                                              local ty = (my / 2.0) - cy
                                              local tz = -min_z
                                              tm:translate(tx, ty, tz)
+                                             log("  Centered single CAD part.")
                                          end
                                      end
                                  end
                             end
                             processed = true
                         else
-                            log("CAD import yielded no meshes for: " .. file)
+                            log("  CAD import yielded no meshes for: " .. file)
                         end
                     else
-                        log("Failed to create workspace for CAD file: " .. file)
+                        log("  Failed to create workspace for CAD file: " .. file)
+                         pcall(function() system:inputdlg("Failed to create workspace for " .. file, "Error", "Error") end)
                     end
+                else
+                    log("Skipping unsupported or unrecognized file: " .. file .. " (Ext: " .. (ext or "None") .. ")")
                 end
 
                 if processed then
@@ -280,12 +296,13 @@ local success_loop, err_loop = pcall(function()
         end
     else
         log("Failed to list files in directory: " .. import_path)
+        pcall(function() system:inputdlg("Failed to list files in directory.", "Error", "Error") end)
     end
 end)
 
 if not success_loop then
     log("Critical Error in Batch Loop: " .. tostring(err_loop))
-    pcall(function() system:inputdlg("Script Error", "Error", tostring(err_loop)) end)
+    pcall(function() system:inputdlg("Script Error: " .. tostring(err_loop), "Error", "Error") end)
 end
 
 -- Trigger Desktop Update
@@ -297,4 +314,5 @@ end
 -- Completion message
 if success_loop then
     pcall(function() system:inputdlg("Batch Import to Workspaces Complete!", "Status", "Success") end)
+    log("--- Batch Import Complete ---")
 end
