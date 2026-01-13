@@ -1,6 +1,6 @@
 -- Diagnostics_Probe_CSV.lua
--- Exports Mesh Volume, Outbox Volume, Support Volume, and User-Provided Build Time to CSV.
--- Final Version: Manual Entry, Clean Output, Reordered Columns.
+-- Exports Mesh Volume, Outbox Volume, Support Volume, and Build Time (Placeholder) to CSV.
+-- Final Clean Version: No Prompts, Build Time is "nil", Clean Output, Reordered Columns.
 
 -- Standard Logging Function
 local function log(msg)
@@ -52,7 +52,7 @@ end
 
 -- Collect Data
 local csv_lines = {}
--- Header: Build Time is now LAST
+-- Header: Build Time is LAST
 table.insert(csv_lines, "Tray Name,Mesh Name,Part Volume,Bounding Box Volume,Support Volume,Tray Build Time")
 
 local tray_handler = _G.netfabbtrayhandler
@@ -62,6 +62,9 @@ if tray_handler then
     if ok_c then tray_count = c end
 end
 
+-- Default Build Time (User requested "nil" without prompts)
+local b_time = "nil"
+
 if tray_count > 0 then
     for t_i = 0, tray_count - 1 do
         local tray = tray_handler:gettray(t_i)
@@ -70,15 +73,6 @@ if tray_count > 0 then
         local tray_name = "Tray " .. t_i
         local t_name_val = safe_get(tray, "name")
         if t_name_val then tray_name = t_name_val end
-
-        -- PROMPT USER FOR BUILD TIME (Option B)
-        local b_time = "N/A"
-        local ok_dlg, user_time = pcall(function()
-            return system:inputdlg("Enter Build Time for " .. tray_name .. " (e.g. 02:45:00):", "Build Time Input", "00:00:00")
-        end)
-        if ok_dlg and user_time then
-            b_time = user_time
-        end
 
         if tray and tray.root then
             for m_i = 0, tray.root.meshcount - 1 do
@@ -117,15 +111,6 @@ else
     if _G.tray then
         local tray = _G.tray
         local tray_name = safe_get(tray, "name") or "Active Tray"
-
-        -- PROMPT USER
-        local b_time = "N/A"
-        local ok_dlg, user_time = pcall(function()
-            return system:inputdlg("Enter Build Time for " .. tray_name .. ":", "Build Time Input", "00:00:00")
-        end)
-        if ok_dlg and user_time then
-            b_time = user_time
-        end
 
         if tray.root then
             for m_i = 0, tray.root.meshcount - 1 do
@@ -183,10 +168,8 @@ else
         for _, line in ipairs(csv_lines) do
             if system and system.log then system:log(line) end
         end
-        -- Do NOT log "Script Complete" here to avoid polluting the CSV further.
 
-        -- Attempt to close/detach log file by setting it to nil or empty (if supported)
-        -- This is a best-effort attempt to stop logging to the CSV file.
+        -- Attempt to close/detach log file
         pcall(function() system:logtofile("") end)
     else
         log("Failed to write to file via system log: " .. tostring(err_log))
