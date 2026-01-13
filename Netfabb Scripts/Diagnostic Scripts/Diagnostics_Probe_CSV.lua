@@ -1,6 +1,6 @@
 -- Diagnostics_Probe_CSV.lua
 -- Exports Mesh Volume, Outbox Volume, Support Volume, and Estimated Build Time to CSV.
--- Now includes detailed probing for Build Time attributes and standard logging.
+-- Now includes DEEP INTROSPECTION to find hidden properties.
 
 -- Standard Logging Function
 local function log(msg)
@@ -10,7 +10,6 @@ local function log(msg)
 end
 
 -- 1. Prompt for Directory Path
--- This popup asks the user for a filepath (or directory path).
 local path_variable = ""
 local ok_input, input_path = pcall(function() return system:inputdlg("Enter Path to Save CSV & Log:", "Export Folder Path", "C:\\") end)
 
@@ -49,7 +48,7 @@ if system and system.logtofile then
     end
 end
 
-log("--- Starting Diagnostics Probe CSV v2 ---")
+log("--- Starting Diagnostics Probe CSV v3 (Deep Introspection) ---")
 log("CSV Target: " .. csv_path)
 
 -- Helper: Safe Get Property
@@ -68,60 +67,78 @@ function format_ms(ms)
     return string.format("%02d:%02d:%02d", hours, minutes, secs)
 end
 
+-- Helper: Dump Object Keys (Introspection)
+function dump_object(obj, obj_name)
+    if not obj then return end
+    log("  [Introspection] Dumping keys for: " .. obj_name)
+
+    -- 1. Try pairs() (unlikely to work on userdata but worth a shot)
+    local ok_pairs, err_pairs = pcall(function()
+        for k, v in pairs(obj) do
+            log("    KEY: " .. tostring(k) .. " = " .. tostring(v))
+        end
+    end)
+    if not ok_pairs then log("    pairs() failed: " .. tostring(err_pairs)) end
+
+    -- 2. Try getmetatable
+    local mt = getmetatable(obj)
+    if mt then
+        log("    Metatable found.")
+        -- Check __index
+        if mt.__index then
+            if type(mt.__index) == "table" then
+                log("    __index is a table. Keys:")
+                for k, v in pairs(mt.__index) do
+                    log("      [MT] " .. tostring(k) .. " (" .. type(v) .. ")")
+                end
+            else
+                 log("    __index is a function/userdata (" .. type(mt.__index) .. ")")
+            end
+        end
+
+        -- Dump other MT keys
+        for k,v in pairs(mt) do
+            if k ~= "__index" then
+                log("    [MT_Root] " .. tostring(k) .. " = " .. tostring(v))
+            end
+        end
+    else
+        log("    No Metatable found.")
+    end
+end
+
+
 -- Helper: Get Build Time with Deep Probing
 function get_build_time(tray)
     if not tray then return "nil" end
 
-    log("  [Probing Build Time for Tray]")
-    local val = nil
-    local methods_tried = {}
+    -- PERFORM INTROSPECTION ONCE PER RUN (or per tray) to find the key
+    dump_object(tray, "TrayObject")
 
-    -- Attempt 1: getattribute('built_time_estimation_ms')
-    -- This is the specific attribute mentioned in the Buildstyle documentation.
-    local ok_1, res_1 = pcall(function() return tray:getattribute("built_time_estimation_ms") end)
-    if ok_1 and res_1 then
-        log("    > getattribute('built_time_estimation_ms') FOUND: " .. tostring(res_1))
-        return format_ms(tonumber(res_1) or 0) .. " (Attrib)"
-    else
-        table.insert(methods_tried, "getattribute('built_time_estimation_ms')=" .. tostring(res_1))
-    end
-
-    -- Attempt 2: getproperty('built_time_estimation_ms')
-    local ok_2, res_2 = pcall(function() return tray:getproperty("built_time_estimation_ms") end)
-    if ok_2 and res_2 then
-        log("    > getproperty('built_time_estimation_ms') FOUND: " .. tostring(res_2))
-        return format_ms(tonumber(res_2) or 0) .. " (Prop)"
-    else
-        table.insert(methods_tried, "getproperty('built_time_estimation_ms')")
-    end
-
-    -- Attempt 3: Direct property access .built_time_estimation_ms
+    -- Attempt 1: Direct property access .built_time_estimation_ms
     local ok_3, res_3 = pcall(function() return tray.built_time_estimation_ms end)
     if ok_3 and res_3 then
-        log("    > tray.built_time_estimation_ms FOUND: " .. tostring(res_3))
         return format_ms(tonumber(res_3) or 0) .. " (Direct)"
-    else
-        table.insert(methods_tried, "tray.built_time_estimation_ms")
     end
 
-    -- Attempt 4: Generic 'buildtime' property (sometimes exists on system/slice)
+    -- Attempt 2: Generic 'buildtime' property
     local ok_4, res_4 = pcall(function() return tray.buildtime end)
     if ok_4 and res_4 then
-        log("    > tray.buildtime FOUND: " .. tostring(res_4))
         return tostring(res_4)
     end
 
-    -- Attempt 5: Legacy Slice Object Check
+    -- Attempt 3: Slice Object
     local slice = safe_get(tray, "slice")
     if slice then
+         log("    Tray has .slice property. Dumping Slice keys:")
+         dump_object(slice, "SliceObject")
+
          local bt = safe_get(slice, "buildtime")
          if bt then
-            log("    > tray.slice.buildtime FOUND: " .. tostring(bt))
             return tostring(bt)
          end
     end
 
-    log("    > All attempts failed: " .. table.concat(methods_tried, ", "))
     return "nil"
 end
 
