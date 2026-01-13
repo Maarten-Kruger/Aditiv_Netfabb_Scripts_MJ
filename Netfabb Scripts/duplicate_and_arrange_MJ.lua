@@ -106,8 +106,15 @@ local function process_tray(current_tray, tray_name)
 
     log("Template Part: " .. template_part.name)
 
-    -- 2.5 Export 3MF of the Template Part
-    log("Exporting 3MF for " .. template_part.name .. "...")
+    -- Sanitize names for filename and usage
+    local raw_name = template_part.name
+    -- Remove .stl extension (case insensitive)
+    local name_no_ext = string.gsub(raw_name, "%.[sS][tT][lL]$", "")
+    -- Remove non-alphanumeric characters
+    local safe_part = string.gsub(name_no_ext, "[^%w%-_]", "")
+
+    -- 2.5 Export 3MF of the Template Part (Backup)
+    log("Exporting Backup 3MF for " .. template_part.name .. "...")
     local exp_ok, exp_err = pcall(function()
         if system and system.create3mfexporter then
             local exporter = system:create3mfexporter()
@@ -119,13 +126,11 @@ local function process_tray(current_tray, tray_name)
                 entry:setsupport(template_part.support)
             end
 
-            -- Sanitize names for filename
-            local safe_tray = string.gsub(tray_name, "[^%w%-_]", "")
-            local safe_part = string.gsub(template_part.name, "[^%w%-_]", "")
-            local export_filename = save_path .. "Export_" .. safe_tray .. "_" .. safe_part .. ".3mf"
+            -- New Filename Format: [safe_part]_3mf.3mf
+            local export_filename = save_path .. safe_part .. "_3mf.3mf"
 
             exporter:exporttofile(export_filename)
-            log("Exported to: " .. export_filename)
+            log("Exported backup to: " .. export_filename)
         else
             log("Warning: system:create3mfexporter not available.")
         end
@@ -182,69 +187,163 @@ local function process_tray(current_tray, tray_name)
     log("Max Parts: " .. max_count)
     log("Duplicates Needed: " .. duplicates_needed)
 
-    -- 6. Duplicate the part
+    -- 6. Duplicate the part via Export-Import Loop
     if duplicates_needed > 0 then
-        log("Duplicating part via createsupportedmesh...")
+        log("Starting Export-Import Duplication Loop...")
         update_progress(20, "Processing " .. tray_name .. ": Duplicating " .. duplicates_needed .. " parts...")
 
-        local base_name = template_part.name
-        base_name = string.gsub(base_name, "%s*%(%d+%)", "")
-        base_name = string.gsub(base_name, "_copy", "")
-        base_name = string.gsub(base_name, "%.%w+$", "")
-        base_name = string.gsub(base_name, "%s+$", "")
+        -- Step A: Create "Non-Editable" Split Export
+        local temp_3mf_path = save_path .. safe_part .. "_noneditable.3mf"
+        local split_export_ok, split_msg = pcall(function()
+            local part_geo = nil
+            local supp_geo = nil
 
-        local master_geometry = nil
-        if template_part.createsupportedmesh then
-            local success_sup, res_sup = pcall(function()
-                return template_part:createsupportedmesh(true, true, true, 0.0)
-            end)
+            -- Extract Part
+            local ok_p, res_p = pcall(function() return template_part:createsupportedmesh(true, false, false, 0.0) end)
+            if ok_p and res_p then part_geo = res_p.mesh end
 
-            if success_sup and res_sup then
-                local has_mesh_prop = false
-                pcall(function() if res_sup.mesh then has_mesh_prop = true end end)
+            -- Extract Support
+            local ok_s, res_s = pcall(function() return template_part:createsupportedmesh(false, true, true, 0.0) end)
+            if ok_s and res_s then supp_geo = res_s.mesh end
 
-                if has_mesh_prop then
-                     master_geometry = res_sup.mesh
-                else
-                     local is_luamesh = false
-                     pcall(function() if res_sup.facecount then is_luamesh = true end end)
-                     if is_luamesh then master_geometry = res_sup end
-                end
+            if not part_geo then error("Failed to extract part geometry") end
+
+            local exporter = system:create3mfexporter()
+
+            -- Add Part Entry
+            local p_entry = exporter:add(part_geo)
+            p_entry.name = safe_part
+            p_entry.grouppath = "Production/Parts"
+
+            -- Add Support Entry (if exists)
+            if supp_geo then
+                local s_entry = exporter:add(supp_geo)
+                s_entry.name = safe_part .. "_Support"
+                s_entry.grouppath = "Production/Supports"
             end
-        end
 
-        if master_geometry then
-             local newly_added = {}
-             for i = 1, duplicates_needed do
-                 local new_traymesh = root:addmesh(master_geometry)
-                 new_traymesh.name = base_name .. "_(dup" .. i .. ")"
-                 table.insert(newly_added, new_traymesh)
-             end
-             log("Added " .. duplicates_needed .. " supported duplicates.")
+            exporter:exporttofile(temp_3mf_path)
+        end)
 
-             -- 7. Full Repair on Duplicates
-             log("Running repair (repairextended) on duplicates...")
-             update_progress(50, "Processing " .. tray_name .. ": Repairing duplicates...")
-
-             for i, m in ipairs(newly_added) do
-                 local m_name = m.name
-                 local m_mesh = m.mesh
-                 if m_mesh then
-                     local copy_mesh = m_mesh:dupe()
-                     copy_mesh:repairextended()
-                     root:removemesh(m)
-                     local repaired_tm = root:addmesh(copy_mesh)
-                     repaired_tm.name = m_name
-                 end
-                 -- Sub-progress
-                 if i % 5 == 0 then
-                     local pct = 50 + (i / #newly_added) * 30 -- 50% to 80%
-                     update_progress(pct, "Processing " .. tray_name .. ": Repairing part " .. i .. "/" .. #newly_added)
-                 end
-             end
-             log("Repair complete.")
+        if not split_export_ok then
+            log("Error creating temp split export: " .. tostring(split_msg))
+            -- Abort duplication if export failed
+            duplicates_needed = 0
         else
-             log("Aborting duplication due to failure in generating master mesh.")
+            log("Temp split export created at: " .. temp_3mf_path)
+
+            -- Step B: Import Loop
+            for i = 1, duplicates_needed do
+                local imp_ok, imp_res = pcall(function()
+                    -- Import with split_meshes=true
+                    local importer = system:create3mfimporter(temp_3mf_path, true, "ImportGroup", current_tray)
+                    if not importer then return "Importer creation failed" end
+
+                    local imported_list = {}
+
+                    -- Iterate meshes from importer
+                    for m_idx = 0, importer.meshcount - 1 do
+                        local m = importer:getmesh(m_idx)
+                        local m_name = "Unknown"
+                        pcall(function() m_name = importer:getname(m_idx) end)
+
+                        -- Add to tray
+                        local tm = root:addmesh(m)
+                        table.insert(imported_list, { mesh = tm, name = m_name, index = m_idx })
+                        -- log("Debug Loop " .. i .. ": Imported mesh " .. m_idx .. ": " .. m_name)
+                    end
+
+                    local imp_part = nil
+                    local imp_supp = nil
+
+                    -- Identify Logic
+                    -- 1. Try Name Matching
+                    for _, item in ipairs(imported_list) do
+                        if string.find(item.name, "_Support") then
+                            imp_supp = item.mesh
+                        elseif string.find(item.name, safe_part) then
+                            imp_part = item.mesh
+                        end
+                    end
+
+                    -- 2. Fallback: Elimination (If exactly 2 meshes, and one is Part, other is Support)
+                    if not imp_supp and #imported_list == 2 and imp_part then
+                        for _, item in ipairs(imported_list) do
+                            if item.mesh ~= imp_part then
+                                imp_supp = item.mesh
+                                -- log("Debug: Identified support via elimination: " .. item.name)
+                            end
+                        end
+                    end
+
+                    -- 3. Fallback: Index (0 = Part, 1 = Support)
+                    if not imp_part and #imported_list > 0 then
+                        -- Assume 0 is part
+                        for _, item in ipairs(imported_list) do
+                            if item.index == 0 then imp_part = item.mesh end
+                            if item.index == 1 then imp_supp = item.mesh end
+                        end
+                    end
+
+                    -- Re-assign Support
+                    if imp_part and imp_supp then
+                        local as_ok, as_res = pcall(function() return imp_part:assignsupport(imp_supp, false) end)
+                        if as_ok then
+                            -- assignsupport returns nothing/nil on success usually, but verify via property if possible
+                            -- Or just assume success if no error.
+                            -- Remove the support mesh
+                            root:removemesh(imp_supp)
+                        else
+                            log("Error assigning support in loop " .. i .. ": " .. tostring(as_res))
+                        end
+                    elseif #imported_list > 1 then
+                        log("Warning Loop " .. i .. ": Could not identify Part/Support pair. Names: " .. table.concat(
+                            (function()
+                                local t={}
+                                for _,v in ipairs(imported_list) do table.insert(t, v.name) end
+                                return t
+                            end)(), ", ")
+                        )
+                    end
+
+                    -- Rename
+                    if imp_part then
+                        imp_part.name = safe_part .. "_dup" .. i
+                    end
+                end)
+
+                if not imp_ok then
+                    log("Error in duplication loop " .. i .. ": " .. tostring(imp_res))
+                end
+
+                -- Update Progress
+                 if i % 5 == 0 then
+                     local pct = 20 + (i / duplicates_needed) * 60 -- 20% to 80%
+                     update_progress(pct, "Processing " .. tray_name .. ": Imported " .. i .. "/" .. duplicates_needed)
+                 end
+            end
+
+            log("Duplication loop complete.")
+
+            -- Step C: Cleanup Temp File
+            pcall(function()
+                local deleted = false
+                if os and os.remove then
+                    local ok, err = os.remove(temp_3mf_path)
+                    if ok then deleted = true end
+                end
+
+                if not deleted and os and os.execute then
+                    -- Fallback to shell command
+                    os.execute("del \"" .. temp_3mf_path .. "\"")
+                    deleted = true -- Assume success or at least tried
+                    log("Attempted delete via shell.")
+                end
+
+                if not deleted then
+                     log("Could not delete temp file (os.remove/execute unavailable).")
+                end
+            end)
         end
     else
         log("No duplicates needed.")
