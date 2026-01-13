@@ -1,6 +1,6 @@
 -- Diagnostics_Probe_CSV.lua
 -- Exports Mesh Volume, Outbox Volume, Support Volume, and Estimated Build Time to CSV.
--- Probe v4: Targeting PDF-specific method names for attribute retrieval.
+-- Probe v5: Expanded Method Probe (Tray & Root), Crash Fixes.
 
 -- Standard Logging Function
 local function log(msg)
@@ -48,7 +48,7 @@ if system and system.logtofile then
     end
 end
 
-log("--- Starting Diagnostics Probe CSV v4 (Targeted Method Probe) ---")
+log("--- Starting Diagnostics Probe CSV v5 (Expanded Probe) ---")
 log("CSV Target: " .. csv_path)
 
 -- Helper: Safe Get Property
@@ -67,16 +67,49 @@ function format_ms(ms)
     return string.format("%02d:%02d:%02d", hours, minutes, secs)
 end
 
--- Helper: Get Build Time with Targeted Probing
+-- Helper: Probe Object for Build Time
+function probe_object_methods(obj, obj_name, candidates)
+    if not obj then return nil end
+    log("    Probing " .. obj_name .. "...")
+
+    for _, method in ipairs(candidates) do
+        local func_name = method.name
+        local arg = method.args[1]
+
+        -- Check if function exists
+        local func = nil
+        local ok_idx, err_idx = pcall(function() func = obj[func_name] end)
+
+        if ok_idx and func and type(func) == "function" then
+            log("      [FOUND] " .. obj_name .. ":" .. func_name)
+
+            -- Call it
+            local ok_call, res = pcall(function() return obj[func_name](obj, arg) end)
+            if ok_call and res then
+                log("        > RESULT: " .. tostring(res))
+                -- If it looks like a number (timestamp), return it
+                if type(res) == "number" or tonumber(res) then
+                     return format_ms(tonumber(res)) .. " (" .. obj_name .. ":" .. func_name .. ")"
+                end
+            else
+                log("        > Result nil or call failed.")
+            end
+        else
+            -- Optional: Log missing methods? (Too verbose for all candidates)
+             -- log("      [MISSING] " .. func_name)
+        end
+    end
+    return nil
+end
+
+-- Helper: Get Build Time with Expanded Probing
 function get_build_time(tray)
     if not tray then return "nil" end
 
     log("  [Probing Build Time]")
-    local val = nil
-    local methods_tried = {}
 
-    -- LIST OF CANDIDATE METHODS TO TRY
-    -- Derived from PDF: "a_modelData.getTrayAttribEx" and "a_modelData.getTrayAttrib"
+    -- LIST OF CANDIDATE METHODS
+    -- Mix of PDF-derived and standard API guesses
     local candidates = {
         {name="getTrayAttrib", args={"built_time_estimation_ms"}},
         {name="gettrayattrib", args={"built_time_estimation_ms"}},
@@ -84,41 +117,57 @@ function get_build_time(tray)
         {name="gettrayattribex", args={"built_time_estimation_ms"}},
         {name="getAttrib", args={"built_time_estimation_ms"}},
         {name="getattrib", args={"built_time_estimation_ms"}},
-        {name="getattribute", args={"built_time_estimation_ms"}}, -- Retrying just in case
+        {name="get_attribute", args={"built_time_estimation_ms"}},
+        {name="GetAttribute", args={"built_time_estimation_ms"}},
+        {name="getattribute", args={"built_time_estimation_ms"}},
+
         {name="getproperty", args={"built_time_estimation_ms"}},
+        {name="getProperty", args={"built_time_estimation_ms"}},
+        {name="get_property", args={"built_time_estimation_ms"}},
+
         {name="getparameter", args={"built_time_estimation_ms"}},
-        {name="getmachineparameter", args={"built_time_estimation_ms"}},
-        {name="getsetting", args={"built_time_estimation_ms"}}
+        {name="getParameter", args={"built_time_estimation_ms"}},
+        {name="get_parameter", args={"built_time_estimation_ms"}},
+
+        {name="getcustomdata", args={"built_time_estimation_ms"}},
+        {name="getmetadata", args={"built_time_estimation_ms"}},
+
+        -- Wildcards
+        {name="gettime", args={}},
+        {name="getbuildtime", args={}},
+        {name="getestimation", args={}},
+        {name="getduration", args={}}
     }
 
-    for _, method in ipairs(candidates) do
-        local func_name = method.name
-        local arg = method.args[1]
+    -- 1. Probe Tray Object
+    local t_res = probe_object_methods(tray, "Tray", candidates)
+    if t_res then return t_res end
 
-        -- Check if function exists on object first
-        local func = nil
-        local ok_idx, err_idx = pcall(function() func = tray[func_name] end)
+    -- 2. Probe Root Object
+    if tray.root then
+        local r_res = probe_object_methods(tray.root, "Tray.Root", candidates)
+        if r_res then return r_res end
+    end
 
-        if ok_idx and func and type(func) == "function" then
-            log("    Function FOUND: tray:" .. func_name)
-            -- Call it
-            local ok_call, res = pcall(function() return tray[func_name](tray, arg) end)
-            if ok_call and res then
-                log("      > SUCCESS: " .. func_name .. " returned " .. tostring(res))
-                return format_ms(tonumber(res) or 0) .. " (" .. func_name .. ")"
-            else
-                log("      > Call failed or returned nil: " .. tostring(res))
-            end
-        else
-            -- Uncomment below for verbose fail logs
-            -- log("    Method missing: " .. func_name)
+    -- 3. Last Resort: Safe Property Access
+    local props_to_check = {
+        "built_time_estimation_ms",
+        "buildtime",
+        "estimation",
+        "duration",
+        "time"
+    }
+
+    for _, prop in ipairs(props_to_check) do
+        local val = nil
+        local ok_p, err_p = pcall(function() val = tray[prop] end)
+        if ok_p and val then
+             log("      [FOUND] Property: tray." .. prop .. " = " .. tostring(val))
+             return tostring(val) .. " (Prop)"
         end
     end
 
-    -- Last Resort: Check specific property keys again
-    if tray.built_time_estimation_ms then return format_ms(tray.built_time_estimation_ms) end
-    if tray.buildtime then return tostring(tray.buildtime) end
-
+    log("      > All attempts failed.")
     return "nil"
 end
 
