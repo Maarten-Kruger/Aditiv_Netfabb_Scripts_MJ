@@ -1,6 +1,6 @@
 -- Diagnostics_Probe_CSV.lua
 -- Exports Mesh Volume, Outbox Volume, Support Volume, and Estimated Build Time to CSV.
--- Probe v5: Expanded Method Probe (Tray & Root), Crash Fixes.
+-- Probe v6: Checking getproperties(), getstate(), and System info.
 
 -- Standard Logging Function
 local function log(msg)
@@ -48,7 +48,7 @@ if system and system.logtofile then
     end
 end
 
-log("--- Starting Diagnostics Probe CSV v5 (Expanded Probe) ---")
+log("--- Starting Diagnostics Probe CSV v6 (Property Table Probe) ---")
 log("CSV Target: " .. csv_path)
 
 -- Helper: Safe Get Property
@@ -67,107 +67,68 @@ function format_ms(ms)
     return string.format("%02d:%02d:%02d", hours, minutes, secs)
 end
 
--- Helper: Probe Object for Build Time
-function probe_object_methods(obj, obj_name, candidates)
-    if not obj then return nil end
-    log("    Probing " .. obj_name .. "...")
-
-    for _, method in ipairs(candidates) do
-        local func_name = method.name
-        local arg = method.args[1]
-
-        -- Check if function exists
-        local func = nil
-        local ok_idx, err_idx = pcall(function() func = obj[func_name] end)
-
-        if ok_idx and func and type(func) == "function" then
-            log("      [FOUND] " .. obj_name .. ":" .. func_name)
-
-            -- Call it
-            local ok_call, res = pcall(function() return obj[func_name](obj, arg) end)
-            if ok_call and res then
-                log("        > RESULT: " .. tostring(res))
-                -- If it looks like a number (timestamp), return it
-                if type(res) == "number" or tonumber(res) then
-                     return format_ms(tonumber(res)) .. " (" .. obj_name .. ":" .. func_name .. ")"
-                end
-            else
-                log("        > Result nil or call failed.")
-            end
-        else
-            -- Optional: Log missing methods? (Too verbose for all candidates)
-             -- log("      [MISSING] " .. func_name)
-        end
+-- Helper: Dump Table to Log
+function log_table(tbl, prefix)
+    if type(tbl) ~= "table" then return end
+    for k, v in pairs(tbl) do
+        log(prefix .. tostring(k) .. " = " .. tostring(v))
     end
-    return nil
 end
 
--- Helper: Get Build Time with Expanded Probing
+-- Helper: Get Build Time with Property Table Probe
 function get_build_time(tray)
     if not tray then return "nil" end
 
-    log("  [Probing Build Time]")
+    log("  [Probing Build Time - v6]")
 
-    -- LIST OF CANDIDATE METHODS
-    -- Mix of PDF-derived and standard API guesses
-    local candidates = {
-        {name="getTrayAttrib", args={"built_time_estimation_ms"}},
-        {name="gettrayattrib", args={"built_time_estimation_ms"}},
-        {name="getTrayAttribEx", args={"built_time_estimation_ms"}},
-        {name="gettrayattribex", args={"built_time_estimation_ms"}},
-        {name="getAttrib", args={"built_time_estimation_ms"}},
-        {name="getattrib", args={"built_time_estimation_ms"}},
-        {name="get_attribute", args={"built_time_estimation_ms"}},
-        {name="GetAttribute", args={"built_time_estimation_ms"}},
-        {name="getattribute", args={"built_time_estimation_ms"}},
+    -- 1. Test tray:getproperties()
+    log("    Checking tray:getproperties()...")
+    local props_func = nil
+    pcall(function() props_func = tray.getproperties end)
 
-        {name="getproperty", args={"built_time_estimation_ms"}},
-        {name="getProperty", args={"built_time_estimation_ms"}},
-        {name="get_property", args={"built_time_estimation_ms"}},
+    if props_func then
+        local ok, res = pcall(function() return tray:getproperties() end)
+        if ok and type(res) == "table" then
+            log("      > SUCCESS: getproperties() returned a table.")
+            log_table(res, "        [PROP] ")
 
-        {name="getparameter", args={"built_time_estimation_ms"}},
-        {name="getParameter", args={"built_time_estimation_ms"}},
-        {name="get_parameter", args={"built_time_estimation_ms"}},
-
-        {name="getcustomdata", args={"built_time_estimation_ms"}},
-        {name="getmetadata", args={"built_time_estimation_ms"}},
-
-        -- Wildcards
-        {name="gettime", args={}},
-        {name="getbuildtime", args={}},
-        {name="getestimation", args={}},
-        {name="getduration", args={}}
-    }
-
-    -- 1. Probe Tray Object
-    local t_res = probe_object_methods(tray, "Tray", candidates)
-    if t_res then return t_res end
-
-    -- 2. Probe Root Object
-    if tray.root then
-        local r_res = probe_object_methods(tray.root, "Tray.Root", candidates)
-        if r_res then return r_res end
+            -- Check for build time in table
+            if res.built_time_estimation_ms then return format_ms(res.built_time_estimation_ms) end
+            if res.buildtime then return tostring(res.buildtime) end
+            if res.time then return tostring(res.time) end
+        else
+            log("      > Call failed or returned non-table: " .. type(res))
+        end
+    else
+         log("      > Method tray:getproperties not found.")
     end
 
-    -- 3. Last Resort: Safe Property Access
-    local props_to_check = {
-        "built_time_estimation_ms",
-        "buildtime",
-        "estimation",
-        "duration",
-        "time"
-    }
+    -- 2. Test tray:getstate()
+    log("    Checking tray:getstate()...")
+    local state_func = nil
+    pcall(function() state_func = tray.getstate end)
 
-    for _, prop in ipairs(props_to_check) do
-        local val = nil
-        local ok_p, err_p = pcall(function() val = tray[prop] end)
-        if ok_p and val then
-             log("      [FOUND] Property: tray." .. prop .. " = " .. tostring(val))
-             return tostring(val) .. " (Prop)"
+    if state_func then
+        local ok, res = pcall(function() return tray:getstate() end)
+        if ok and res then
+             log("      > SUCCESS: getstate() returned " .. type(res))
+             if type(res) == "table" then log_table(res, "        [STATE] ") end
+        end
+    else
+        log("      > Method tray:getstate not found.")
+    end
+
+    -- 3. System Level Checks (Run once generally, but safe here)
+    if system.getjobinfo then
+        log("    Checking system:getjobinfo()...")
+        local ok, res = pcall(function() return system:getjobinfo() end)
+        if ok and type(res) == "table" then
+             log("      > SUCCESS: system:getjobinfo()")
+             log_table(res, "        [JOB] ")
         end
     end
 
-    log("      > All attempts failed.")
+    -- Final fallback
     return "nil"
 end
 
