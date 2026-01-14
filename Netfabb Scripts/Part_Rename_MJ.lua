@@ -285,11 +285,13 @@ while labelled_count < #meshes do
 
     if found_any and best_candidate then
         -- Rename
-        -- Format: 000, 001, 002...
-        local new_name = string.format("%03d", labelled_count)
+        -- Format: 000_Name, 001_Name...
+        local new_name = string.format("%03d_%s", labelled_count, best_candidate.orig_name)
 
         -- Apply Rename
-        local ok = safe_pcall(function() best_candidate.mesh.name = new_name end)
+        -- Use standard pcall because assignment returns nil (which safe_pcall would treat as error/ambiguous)
+        local ok, err = pcall(function() best_candidate.mesh.name = new_name end)
+
         if ok then
             log(string.format("Renamed '%s' -> '%s' (Score=%.2f, Y_Dist=%.2f, Dist=%.2f, Spatter=%s)",
                 best_candidate.orig_name, new_name, best_score,
@@ -305,7 +307,7 @@ while labelled_count < #meshes do
             current_pt = best_candidate.center
             current_bbox = best_candidate.bbox
         else
-            log("Error renaming part " .. best_candidate.orig_name)
+            log("Error renaming part " .. best_candidate.orig_name .. ": " .. tostring(err))
             break
         end
     else
