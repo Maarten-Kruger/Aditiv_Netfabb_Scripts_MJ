@@ -52,67 +52,46 @@ function degrees_to_radians(deg)
 end
 
 -- Spatter Area Check
--- Checks if Candidate P is in the Spatter Area of Source Part S
--- Source S has bounding box (minx, miny, maxx, maxy)
--- Spatter Area is a region extending in -Y direction from bottom corners
--- bounded by lines angling outwards by Spatter_Angle.
-function is_in_spatter_area(candidate_pt, source_bbox, angle_deg)
-    -- 1. Must be below the source part
-    -- Assuming Y+ is UP. "Bottom" is min.y. Spatter extends Down (Y-).
-    if candidate_pt.y >= source_bbox.min.y then
+-- Helper to check a single point against the cone
+function is_point_in_spatter_cone(pt, source_bbox, angle_deg)
+    -- 1. Must be below the source part (Y < source_min_y)
+    if pt.y >= source_bbox.min.y then
         return false
     end
 
-    -- 2. Define Cone Boundaries
-    -- The user image shows angle 'x' relative to the horizontal.
-    -- Left Line: Starts (minx, miny), goes down-left.
-    -- Right Line: Starts (maxx, miny), goes down-right.
-    -- X-shift calculation based on Delta Y and tan(angle)
-    -- Angle x is from horizontal.
-    -- dx / dy = 1 / tan(x).
-    -- Wait, if angle x is small (e.g. 15 deg from horizontal), line is steep?
-    -- No, "x degree angle... from the left bottom and right bottom extended".
-    -- If x is small, it's close to horizontal?
-    -- Usually "draft angle" is from vertical.
-    -- BUT image shows angle between horizontal dashed line and the ray.
-    -- So if angle is 15 deg, the ray is 15 deg below horizontal. It is very wide.
-    -- If angle is 80 deg, it is close to vertical.
-    -- Let's assume input is "degrees from horizontal".
-
     local ang_rad = degrees_to_radians(angle_deg)
     local tan_a = math.tan(ang_rad)
-
-    -- Safety for 0 or 90 degrees
     if tan_a < 0.001 then tan_a = 0.001 end
 
-    -- Calculate horizontal shift at the candidate's Y depth
-    -- dy is positive distance "down"
-    local dy = source_bbox.min.y - candidate_pt.y
-
-    -- If angle is from horizontal: tan(angle) = dy / dx -> dx = dy / tan(angle)
-    -- If angle is from vertical: tan(angle) = dx / dy -> dx = dy * tan(angle)
-
-    -- Assuming angle from horizontal as per common interpretation of "angle from dashed horizontal line":
-    -- tan(theta) = Opposite(dy) / Adjacent(dx).
-    -- So dx = dy / tan(theta).
-
+    local dy = source_bbox.min.y - pt.y
     local x_shift = dy / tan_a
-
-    -- Left Boundary: x < minx - x_shift
-    -- Right Boundary: x > maxx + x_shift
-    -- "Spatter Area" is the region strictly BEHIND the part?
-    -- The drawing shows the lines diverging.
-    -- If we are BETWEEN the lines, we are in spatter?
-    -- Or OUTSIDE?
-    -- Usually spatter zone is the cone behind. So BETWEEN.
 
     local x_limit_left = source_bbox.min.x - x_shift
     local x_limit_right = source_bbox.max.x + x_shift
 
-    if candidate_pt.x > x_limit_left and candidate_pt.x < x_limit_right then
-        return true -- Inside
+    if pt.x > x_limit_left and pt.x < x_limit_right then
+        return true
     end
+    return false
+end
 
+-- Updated function checking the whole box
+-- Checks if any corner of the candidate box is in the spatter cone of the source part
+function is_box_in_spatter_area(cand_bbox, source_bbox, angle_deg)
+    if not cand_bbox then return false end
+
+    local corners = {
+        {x=cand_bbox.min.x, y=cand_bbox.min.y},
+        {x=cand_bbox.max.x, y=cand_bbox.min.y},
+        {x=cand_bbox.min.x, y=cand_bbox.max.y},
+        {x=cand_bbox.max.x, y=cand_bbox.max.y}
+    }
+
+    for _, pt in ipairs(corners) do
+        if is_point_in_spatter_cone(pt, source_bbox, angle_deg) then
+            return true
+        end
+    end
     return false
 end
 
@@ -264,8 +243,8 @@ while labelled_count < #meshes do
             -- Spatter Area Check
             local is_spatter = false
             if current_bbox then
-                -- Check if Candidate is in Spatter Area of Current Part
-                is_spatter = is_in_spatter_area(cand.center, current_bbox, Spatter_Angle)
+                -- Check if any corner of Candidate Box is in Spatter Area of Current Part
+                is_spatter = is_box_in_spatter_area(cand.bbox, current_bbox, Spatter_Angle)
             end
             local spatter_val = is_spatter and 1.0 or 0.0
 
@@ -297,7 +276,7 @@ while labelled_count < #meshes do
                 best_candidate.orig_name, new_name, best_score,
                 math.abs(best_candidate.center.y - current_pt.y),
                 math.sqrt(dist_sq(best_candidate.center, current_pt)),
-                tostring(is_in_spatter_area(best_candidate.center, current_bbox or {min={x=0,y=0},max={x=0,y=0}}, Spatter_Angle))
+                tostring(is_box_in_spatter_area(best_candidate.bbox, current_bbox or {min={x=0,y=0},max={x=0,y=0}}, Spatter_Angle))
             ))
 
             best_candidate.labelled = true
