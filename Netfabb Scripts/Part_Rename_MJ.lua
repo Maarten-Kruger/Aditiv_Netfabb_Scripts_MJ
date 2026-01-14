@@ -22,13 +22,13 @@
 --]]
 
 -- === CONFIGURATION ===
-local Weight_Y_Distance = 1.0       -- Weight for vertical Y distance
-local Weight_Part_Distance = 1.0    -- Weight for Euclidean distance
+local Weight_Y_Distance = 100.0       -- Weight for vertical Y distance
+local Weight_Part_Distance = 20.0    -- Weight for Euclidean distance
 local Weight_Spatter_Area = 5000.0  -- Weight for Spatter Area (Penalty if Positive)
-local Spatter_Angle = 15.0          -- Angle in degrees for spatter cone
+local Spatter_Angle = 30.0          -- Angle in degrees for spatter cone
 -- ======================
 
-local logfile = "C:\\Users\\Public\\Documents\\Part_Rename_MJ.log"
+local logfile = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Test\\Part_Rename_MJ.log"
 system:logtofile(logfile)
 
 function log(msg)
