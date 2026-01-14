@@ -183,8 +183,8 @@ while labelled_count < #meshes do
 
             -- Calculate Variables
 
-            -- Y Distance: abs(Candidate.y - Current.y)
-            local y_dist = math.abs(cand.center.y - current_pt.y)
+            -- Y Distance: abs(Candidate.y - Origin.y) (Distance from Y=0)
+            local y_dist = math.abs(cand.center.y)
 
             -- Part Distance: Euclidean Distance
             local p_dist = math.sqrt(dist_sq(cand.center, current_pt))
@@ -214,7 +214,7 @@ while labelled_count < #meshes do
         if ok then
             log(string.format("Renamed '%s' -> '%s' (Score=%.2f, Y_Dist=%.2f, Dist=%.2f)",
                 best_candidate.orig_name, new_name, best_score,
-                math.abs(best_candidate.center.y - current_pt.y),
+                math.abs(best_candidate.center.y),
                 math.sqrt(dist_sq(best_candidate.center, current_pt))
             ))
 
