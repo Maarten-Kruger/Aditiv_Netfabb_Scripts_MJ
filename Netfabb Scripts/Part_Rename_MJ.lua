@@ -132,20 +132,65 @@ if mesh_count == 0 then
     return
 end
 
-for i = 0, mesh_count - 1 do
-    local m = tray.root:getmesh(i)
-    local box = safe_pcall(function() return m:getoutbox() end)
+-- Helper function to robustly get bounding box and center
+function get_mesh_info(m)
+    local box = nil
+    local center = nil
+
+    -- Try Property: .outbox
+    local ok, res = pcall(function() return m.outbox end)
+    if ok and res and res.min and res.max then
+        box = res
+    end
+
+    -- Try Method: :getOutbox() (CamelCase)
+    if not box then
+        local ok2, res2 = pcall(function() return m:getOutbox() end)
+        if ok2 and res2 and res2.min and res2.max then
+            box = res2
+        end
+    end
+
+    -- Try Method: :getboundingbox()
+    if not box then
+        local ok3, res3 = pcall(function() return m:getboundingbox() end)
+        if ok3 and res3 and res3.min and res3.max then
+            box = res3
+        end
+    end
+
     if box then
         local cx = (box.min.x + box.max.x) / 2.0
         local cy = (box.min.y + box.max.y) / 2.0
+        center = {x=cx, y=cy}
+    else
+        -- Fallback: .center property (sometimes available)
+        local ok4, c = pcall(function() return m.center end)
+        if ok4 and c and type(c.x) == "number" then
+            center = {x=c.x, y=c.y}
+            -- Fake bbox if only center is known (zero size)
+            box = {min={x=c.x, y=c.y}, max={x=c.x, y=c.y}}
+        end
+    end
+
+    return box, center
+end
+
+for i = 0, mesh_count - 1 do
+    local m = tray.root:getmesh(i)
+    local box, center = get_mesh_info(m)
+
+    if box and center then
         table.insert(meshes, {
             mesh = m,
             index = i,
-            center = {x=cx, y=cy},
+            center = center,
             bbox = box,
             labelled = false,
-            orig_name = m.name
+            orig_name = safe_pcall(function() return m.name end) or "Unknown"
         })
+    else
+        log("Warning: Could not get BBox/Center for mesh index " .. i)
     end
 end
 
