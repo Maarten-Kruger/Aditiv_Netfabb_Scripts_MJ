@@ -132,6 +132,44 @@ if mesh_count == 0 then
     return
 end
 
+-- Helper function to safely get a property from a userdata/table
+function safe_get(obj, key)
+    if type(obj) ~= "userdata" and type(obj) ~= "table" then return nil end
+    local ok, val = pcall(function() return obj[key] end)
+    if ok then return val end
+    return nil
+end
+
+-- Helper to normalize bounding box to {min={x,y}, max={x,y}}
+function normalize_box(b)
+    if not b then return nil end
+
+    -- Pattern 1: .minx, .maxx
+    local minx = safe_get(b, "minx")
+    local maxx = safe_get(b, "maxx")
+    local miny = safe_get(b, "miny")
+    local maxy = safe_get(b, "maxy")
+
+    if minx and maxx and miny and maxy then
+        return { min={x=minx, y=miny}, max={x=maxx, y=maxy} }
+    end
+
+    -- Pattern 2: .min.x, .max.x
+    local min = safe_get(b, "min")
+    local max = safe_get(b, "max")
+    if min and max then
+        local mx = safe_get(min, "x")
+        local my = safe_get(min, "y")
+        local Mx = safe_get(max, "x")
+        local My = safe_get(max, "y")
+        if mx and my and Mx and My then
+             return { min={x=mx, y=my}, max={x=Mx, y=My} }
+        end
+    end
+
+    return nil
+end
+
 -- Helper function to robustly get bounding box and center
 function get_mesh_info(m)
     local box = nil
@@ -139,24 +177,18 @@ function get_mesh_info(m)
 
     -- Try Property: .outbox
     local ok, res = pcall(function() return m.outbox end)
-    if ok and res and res.min and res.max then
-        box = res
-    end
+    box = normalize_box(res)
 
     -- Try Method: :getOutbox() (CamelCase)
     if not box then
         local ok2, res2 = pcall(function() return m:getOutbox() end)
-        if ok2 and res2 and res2.min and res2.max then
-            box = res2
-        end
+        box = normalize_box(res2)
     end
 
     -- Try Method: :getboundingbox()
     if not box then
         local ok3, res3 = pcall(function() return m:getboundingbox() end)
-        if ok3 and res3 and res3.min and res3.max then
-            box = res3
-        end
+        box = normalize_box(res3)
     end
 
     if box then
@@ -166,10 +198,14 @@ function get_mesh_info(m)
     else
         -- Fallback: .center property (sometimes available)
         local ok4, c = pcall(function() return m.center end)
-        if ok4 and c and type(c.x) == "number" then
-            center = {x=c.x, y=c.y}
-            -- Fake bbox if only center is known (zero size)
-            box = {min={x=c.x, y=c.y}, max={x=c.x, y=c.y}}
+        if ok4 and c then
+            local cx = safe_get(c, "x")
+            local cy = safe_get(c, "y")
+            if cx and cy then
+                center = {x=cx, y=cy}
+                -- Fake bbox
+                box = {min={x=cx, y=cy}, max={x=cx, y=cy}}
+            end
         end
     end
 
