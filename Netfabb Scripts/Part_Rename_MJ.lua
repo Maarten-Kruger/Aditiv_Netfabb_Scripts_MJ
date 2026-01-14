@@ -64,7 +64,8 @@ function is_point_in_spatter_cone(pt, source_bbox, angle_deg)
     if tan_a < 0.001 then tan_a = 0.001 end
 
     local dy = source_bbox.min.y - pt.y
-    local x_shift = dy / tan_a
+    -- Fixed: Multiply by tan(angle) for correct cone width (was division)
+    local x_shift = dy * tan_a
 
     local x_limit_left = source_bbox.min.x - x_shift
     local x_limit_right = source_bbox.max.x + x_shift
