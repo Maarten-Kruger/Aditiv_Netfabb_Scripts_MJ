@@ -10,7 +10,7 @@
   5. Rename to "001", update reference, repeat.
 
   Function:
-  Value = (Weight_Y * Y_Distance) + (Weight_Dist * Part_Distance) + (Weight_Spatter * Spatter_Boolean)
+  Value = (Weight_Y * Y_Distance) + (Weight_Dist * Part_Distance)
 
   Weights Configuration:
   The user requested "weights will be negative... smaller is better".
@@ -24,8 +24,6 @@
 -- === CONFIGURATION ===
 local Weight_Y_Distance = 100.0       -- Weight for vertical Y distance
 local Weight_Part_Distance = 20.0    -- Weight for Euclidean distance
-local Weight_Spatter_Area = 5000.0  -- Weight for Spatter Area (Penalty if Positive)
-local Spatter_Angle = 30.0          -- Angle in degrees for spatter cone
 -- ======================
 
 local logfile = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Test\\Part_Rename_MJ.log"
@@ -45,54 +43,6 @@ end
 -- Math Helpers
 function dist_sq(p1, p2)
     return (p1.x - p2.x)^2 + (p1.y - p2.y)^2
-end
-
-function degrees_to_radians(deg)
-    return deg * math.pi / 180.0
-end
-
--- Spatter Area Check
--- Helper to check a single point against the cone
-function is_point_in_spatter_cone(pt, source_bbox, angle_deg)
-    -- 1. Must be below the source part (Y < source_min_y)
-    if pt.y >= source_bbox.min.y then
-        return false
-    end
-
-    local ang_rad = degrees_to_radians(angle_deg)
-    local tan_a = math.tan(ang_rad)
-    if tan_a < 0.001 then tan_a = 0.001 end
-
-    local dy = source_bbox.min.y - pt.y
-    local x_shift = dy / tan_a
-
-    local x_limit_left = source_bbox.min.x - x_shift
-    local x_limit_right = source_bbox.max.x + x_shift
-
-    if pt.x > x_limit_left and pt.x < x_limit_right then
-        return true
-    end
-    return false
-end
-
--- Updated function checking the whole box
--- Checks if any corner of the candidate box is in the spatter cone of the source part
-function is_box_in_spatter_area(cand_bbox, source_bbox, angle_deg)
-    if not cand_bbox then return false end
-
-    local corners = {
-        {x=cand_bbox.min.x, y=cand_bbox.min.y},
-        {x=cand_bbox.max.x, y=cand_bbox.min.y},
-        {x=cand_bbox.min.x, y=cand_bbox.max.y},
-        {x=cand_bbox.max.x, y=cand_bbox.max.y}
-    }
-
-    for _, pt in ipairs(corners) do
-        if is_point_in_spatter_cone(pt, source_bbox, angle_deg) then
-            return true
-        end
-    end
-    return false
 end
 
 if not _G.tray then
@@ -214,7 +164,6 @@ log("Collected " .. #meshes .. " meshes.")
 -- 2. Initialize
 -- Start Point is Origin (0,0).
 local current_pt = {x=0, y=0}
-local current_bbox = nil -- No spatter from origin
 local labelled_count = 0
 
 -- 3. Loop until all parts labelled
@@ -234,24 +183,15 @@ while labelled_count < #meshes do
 
             -- Calculate Variables
 
-            -- Y Distance: abs(Candidate.y - Current.y)
-            local y_dist = math.abs(cand.center.y - current_pt.y)
+            -- Y Distance: abs(Candidate.y - Origin.y) (Distance from Y=0)
+            local y_dist = math.abs(cand.center.y)
 
             -- Part Distance: Euclidean Distance
             local p_dist = math.sqrt(dist_sq(cand.center, current_pt))
 
-            -- Spatter Area Check
-            local is_spatter = false
-            if current_bbox then
-                -- Check if any corner of Candidate Box is in Spatter Area of Current Part
-                is_spatter = is_box_in_spatter_area(cand.bbox, current_bbox, Spatter_Angle)
-            end
-            local spatter_val = is_spatter and 1.0 or 0.0
-
             -- Weighted Function
             local score = (Weight_Y_Distance * y_dist) +
-                          (Weight_Part_Distance * p_dist) +
-                          (Weight_Spatter_Area * spatter_val)
+                          (Weight_Part_Distance * p_dist)
 
             -- Check Min
             if score < best_score then
@@ -272,11 +212,10 @@ while labelled_count < #meshes do
         local ok, err = pcall(function() best_candidate.mesh.name = new_name end)
 
         if ok then
-            log(string.format("Renamed '%s' -> '%s' (Score=%.2f, Y_Dist=%.2f, Dist=%.2f, Spatter=%s)",
+            log(string.format("Renamed '%s' -> '%s' (Score=%.2f, Y_Dist=%.2f, Dist=%.2f)",
                 best_candidate.orig_name, new_name, best_score,
-                math.abs(best_candidate.center.y - current_pt.y),
-                math.sqrt(dist_sq(best_candidate.center, current_pt)),
-                tostring(is_box_in_spatter_area(best_candidate.bbox, current_bbox or {min={x=0,y=0},max={x=0,y=0}}, Spatter_Angle))
+                math.abs(best_candidate.center.y),
+                math.sqrt(dist_sq(best_candidate.center, current_pt))
             ))
 
             best_candidate.labelled = true
@@ -284,7 +223,6 @@ while labelled_count < #meshes do
 
             -- Update Current Pointer
             current_pt = best_candidate.center
-            current_bbox = best_candidate.bbox
         else
             log("Error renaming part " .. best_candidate.orig_name .. ": " .. tostring(err))
             break
