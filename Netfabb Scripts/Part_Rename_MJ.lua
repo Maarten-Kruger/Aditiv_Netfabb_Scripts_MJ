@@ -1,0 +1,236 @@
+--[[
+  Part_Rename_MJ.lua
+  Renames parts in the active tray based on a weighted linear function starting from the origin.
+
+  Logic:
+  1. Find the part closest to the origin (0,0) [or best fitting the function from 0,0].
+  2. Rename it to "000".
+  3. Use this part as the reference for the next step.
+  4. Find the next unlabelled part that minimizes the weighted function.
+  5. Rename to "001", update reference, repeat.
+
+  Function:
+  Value = (Weight_Y * Y_Distance) + (Weight_Dist * Part_Distance) + (Weight_Spatter * Spatter_Boolean)
+
+  Weights Configuration:
+  The user requested "weights will be negative... smaller is better".
+  - If "Smaller is Better", we minimize the Value.
+  - To minimize Distance, we typically use a POSITIVE weight (Cost = 1 * Dist).
+  - If using NEGATIVE weights (Cost = -1 * Dist), "Smaller" (-1000) means LARGER distance.
+  - Below variables are set to Positive to MINIMIZE distance (Standard Proximity Sort).
+  - CHANGE TO NEGATIVE if you wish to MAXIMIZE distance (Jump to farthest).
+--]]
+
+-- === CONFIGURATION ===
+local Weight_Y_Distance = 1.0       -- Weight for vertical Y distance
+local Weight_Part_Distance = 1.0    -- Weight for Euclidean distance
+local Weight_Spatter_Area = 5000.0  -- Weight for Spatter Area (Penalty if Positive)
+local Spatter_Angle = 15.0          -- Angle in degrees for spatter cone
+-- ======================
+
+local logfile = "C:\\Users\\Public\\Documents\\Part_Rename_MJ.log"
+system:logtofile(logfile)
+
+function log(msg)
+    system:log(msg)
+end
+
+function safe_pcall(f, ...)
+    local ok, ret = pcall(f, ...)
+    if ok then return ret end
+    log("Error: " .. tostring(ret))
+    return nil
+end
+
+-- Math Helpers
+function dist_sq(p1, p2)
+    return (p1.x - p2.x)^2 + (p1.y - p2.y)^2
+end
+
+function degrees_to_radians(deg)
+    return deg * math.pi / 180.0
+end
+
+-- Spatter Area Check
+-- Checks if Candidate P is in the Spatter Area of Source Part S
+-- Source S has bounding box (minx, miny, maxx, maxy)
+-- Spatter Area is a region extending in -Y direction from bottom corners
+-- bounded by lines angling outwards by Spatter_Angle.
+function is_in_spatter_area(candidate_pt, source_bbox, angle_deg)
+    -- 1. Must be below the source part
+    -- Assuming Y+ is UP. "Bottom" is min.y. Spatter extends Down (Y-).
+    if candidate_pt.y >= source_bbox.min.y then
+        return false
+    end
+
+    -- 2. Define Cone Boundaries
+    -- The user image shows angle 'x' relative to the horizontal.
+    -- Left Line: Starts (minx, miny), goes down-left.
+    -- Right Line: Starts (maxx, miny), goes down-right.
+    -- X-shift calculation based on Delta Y and tan(angle)
+    -- Angle x is from horizontal.
+    -- dx / dy = 1 / tan(x).
+    -- Wait, if angle x is small (e.g. 15 deg from horizontal), line is steep?
+    -- No, "x degree angle... from the left bottom and right bottom extended".
+    -- If x is small, it's close to horizontal?
+    -- Usually "draft angle" is from vertical.
+    -- BUT image shows angle between horizontal dashed line and the ray.
+    -- So if angle is 15 deg, the ray is 15 deg below horizontal. It is very wide.
+    -- If angle is 80 deg, it is close to vertical.
+    -- Let's assume input is "degrees from horizontal".
+
+    local ang_rad = degrees_to_radians(angle_deg)
+    local tan_a = math.tan(ang_rad)
+
+    -- Safety for 0 or 90 degrees
+    if tan_a < 0.001 then tan_a = 0.001 end
+
+    -- Calculate horizontal shift at the candidate's Y depth
+    -- dy is positive distance "down"
+    local dy = source_bbox.min.y - candidate_pt.y
+
+    -- If angle is from horizontal: tan(angle) = dy / dx -> dx = dy / tan(angle)
+    -- If angle is from vertical: tan(angle) = dx / dy -> dx = dy * tan(angle)
+
+    -- Assuming angle from horizontal as per common interpretation of "angle from dashed horizontal line":
+    -- tan(theta) = Opposite(dy) / Adjacent(dx).
+    -- So dx = dy / tan(theta).
+
+    local x_shift = dy / tan_a
+
+    -- Left Boundary: x < minx - x_shift
+    -- Right Boundary: x > maxx + x_shift
+    -- "Spatter Area" is the region strictly BEHIND the part?
+    -- The drawing shows the lines diverging.
+    -- If we are BETWEEN the lines, we are in spatter?
+    -- Or OUTSIDE?
+    -- Usually spatter zone is the cone behind. So BETWEEN.
+
+    local x_limit_left = source_bbox.min.x - x_shift
+    local x_limit_right = source_bbox.max.x + x_shift
+
+    if candidate_pt.x > x_limit_left and candidate_pt.x < x_limit_right then
+        return true -- Inside
+    end
+
+    return false
+end
+
+if not _G.tray then
+    log("Error: No active tray. Run this script in Netfabb with an open project.")
+    return
+end
+
+log("--- Starting Part_Rename_MJ ---")
+
+-- 1. Collect Meshes from Active Tray
+local meshes = {}
+local mesh_count = safe_pcall(function() return tray.root.meshcount end) or 0
+
+if mesh_count == 0 then
+    log("No meshes found in active tray.")
+    return
+end
+
+for i = 0, mesh_count - 1 do
+    local m = tray.root:getmesh(i)
+    local box = safe_pcall(function() return m:getoutbox() end)
+    if box then
+        local cx = (box.min.x + box.max.x) / 2.0
+        local cy = (box.min.y + box.max.y) / 2.0
+        table.insert(meshes, {
+            mesh = m,
+            index = i,
+            center = {x=cx, y=cy},
+            bbox = box,
+            labelled = false,
+            orig_name = m.name
+        })
+    end
+end
+
+log("Collected " .. #meshes .. " meshes.")
+
+-- 2. Initialize
+-- Start Point is Origin (0,0).
+local current_pt = {x=0, y=0}
+local current_bbox = nil -- No spatter from origin
+local labelled_count = 0
+
+-- 3. Loop until all parts labelled
+while labelled_count < #meshes do
+    local best_candidate = nil
+    -- Initialize best_score.
+    -- If minimizing (Pos Weights), init with Huge number.
+    -- If maximizing (Neg Weights), init with Tiny number (-Huge).
+    -- User said "smaller the better". So we assume we are looking for Min Value.
+    local best_score = 1e30
+
+    -- Determine if any candidate found
+    local found_any = false
+
+    for _, cand in ipairs(meshes) do
+        if not cand.labelled then
+
+            -- Calculate Variables
+
+            -- Y Distance: abs(Candidate.y - Current.y)
+            local y_dist = math.abs(cand.center.y - current_pt.y)
+
+            -- Part Distance: Euclidean Distance
+            local p_dist = math.sqrt(dist_sq(cand.center, current_pt))
+
+            -- Spatter Area Check
+            local is_spatter = false
+            if current_bbox then
+                -- Check if Candidate is in Spatter Area of Current Part
+                is_spatter = is_in_spatter_area(cand.center, current_bbox, Spatter_Angle)
+            end
+            local spatter_val = is_spatter and 1.0 or 0.0
+
+            -- Weighted Function
+            local score = (Weight_Y_Distance * y_dist) +
+                          (Weight_Part_Distance * p_dist) +
+                          (Weight_Spatter_Area * spatter_val)
+
+            -- Check Min
+            if score < best_score then
+                best_score = score
+                best_candidate = cand
+            end
+            found_any = true
+        end
+    end
+
+    if found_any and best_candidate then
+        -- Rename
+        -- Format: 000, 001, 002...
+        local new_name = string.format("%03d", labelled_count)
+
+        -- Apply Rename
+        local ok = safe_pcall(function() best_candidate.mesh.name = new_name end)
+        if ok then
+            log(string.format("Renamed '%s' -> '%s' (Score=%.2f, Y_Dist=%.2f, Dist=%.2f, Spatter=%s)",
+                best_candidate.orig_name, new_name, best_score,
+                math.abs(best_candidate.center.y - current_pt.y),
+                math.sqrt(dist_sq(best_candidate.center, current_pt)),
+                tostring(is_in_spatter_area(best_candidate.center, current_bbox or {min={x=0,y=0},max={x=0,y=0}}, Spatter_Angle))
+            ))
+
+            best_candidate.labelled = true
+            labelled_count = labelled_count + 1
+
+            -- Update Current Pointer
+            current_pt = best_candidate.center
+            current_bbox = best_candidate.bbox
+        else
+            log("Error renaming part " .. best_candidate.orig_name)
+            break
+        end
+    else
+        log("No more candidates found (or logic error).")
+        break
+    end
+end
+
+log("Part Rename Complete.")
