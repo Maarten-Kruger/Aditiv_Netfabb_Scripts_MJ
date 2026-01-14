@@ -1,6 +1,7 @@
 -- Diagnostic_Report_Test.lua
 -- Tests generating a report from a custom ODT template to extract Build Time.
 -- Tries multiple methods (Active Tray, Handler Tray, Mesh, Project) to ensure data population.
+-- Includes manual intervention step and global variable dump.
 
 -- Standard Logging Function
 local function log(msg)
@@ -9,7 +10,7 @@ local function log(msg)
     end
 end
 
-log("--- Script Started: Diagnostic Report Test (Multi-Method) ---")
+log("--- Script Started: Diagnostic Report Test (Multi-Method + Manual Trigger) ---")
 
 local success_main, err_main = pcall(function()
 
@@ -63,8 +64,25 @@ local success_main, err_main = pcall(function()
     log("Template: " .. template_path)
     log("Output Dir: " .. output_dir)
 
-    -- TRIGGER UPDATE
-    log("Triggering desktop event 'updateparts'...")
+    -- 3. GLOBAL DUMP (Diagnostic)
+    log("--- Dumping Global Keys (_G) ---")
+    for k, v in pairs(_G) do
+        log("Global Key: " .. tostring(k) .. " (" .. type(v) .. ")")
+    end
+    log("--- End Global Dump ---")
+
+    -- 4. MANUAL TRIGGER PROMPT
+    log("Prompting user for manual calculation...")
+    pcall(function()
+        system:inputdlg(
+            "Please manually click 'Estimate Build Time' (or equivalent) in the Netfabb GUI to ensure data is calculated.\n\nThen click OK to proceed with report generation.",
+            "Manual Action Required",
+            "OK"
+        )
+    end)
+    log("User confirmed manual calculation.")
+
+    -- TRIGGER UPDATE (Just in case)
     pcall(function() application:triggerdesktopevent('updateparts') end)
 
     -- Report Generation Helper
@@ -75,7 +93,6 @@ local success_main, err_main = pcall(function()
             local snapshot = system:createsnapshotcreator()
             local reportgenerator = system:createreportgenerator(snapshot)
 
-            -- Call the specific function (createreportfortray or createreportformesh)
             if func_name == "createreportfortray" then
                 reportgenerator:createreportfortray(entity, t_path, out_file)
             elseif func_name == "createreportformesh" then
@@ -99,9 +116,21 @@ local success_main, err_main = pcall(function()
         local out_1 = output_dir .. "Report_1_ActiveTray.odt"
         generate("Active Tray (_G.tray)", "createreportfortray", _G.tray, template_path, out_1)
 
-        -- PROBE: Check for attributes (Diagnostic only)
-        local attr_ok, attr_val = pcall(function() return _G.tray:getattribute("BuildTimeEstimation") end)
-        log("  Probe _G.tray:getattribute('BuildTimeEstimation'): " .. tostring(attr_ok) .. " / " .. tostring(attr_val))
+        -- EXTENDED PROBE
+        local function probe(obj, key)
+            local ok, val = pcall(function() return obj[key] end)
+            log("  Probe property '" .. key .. "': " .. tostring(ok) .. " / " .. tostring(val))
+        end
+
+        log("Probing _G.tray properties:")
+        probe(_G.tray, "name")
+        probe(_G.tray, "machineshape")
+        probe(_G.tray, "machinesize_x")
+        probe(_G.tray, "built_time_estimation_ms") -- Try snake_case
+        probe(_G.tray, "BuildTimeEstimation")       -- Try CamelCase
+        probe(_G.tray, "buildtime")
+        probe(_G.tray, "time")
+
     else
         log("Method 1 Skipped: _G.tray is nil")
     end
@@ -121,15 +150,14 @@ local success_main, err_main = pcall(function()
         end
     end
 
-    -- METHOD 3: First Mesh (createreportformesh)
-    -- This tests if the generator works at all for this template on a mesh level
+    -- METHOD 3: First Mesh
     if _G.tray and _G.tray.root and _G.tray.root.meshcount > 0 then
         local mesh = _G.tray.root:getmesh(0)
         local out_3 = output_dir .. "Report_3_FirstMesh.odt"
         generate("First Mesh (Active Tray)", "createreportformesh", mesh, template_path, out_3)
     end
 
-    -- METHOD 4: Fabbproject Trays (if available)
+    -- METHOD 4: Fabbproject Trays
     if _G.fabbproject then
         log("Fabbproject found. Attempting Project Trays...")
         local fp_count = 0
