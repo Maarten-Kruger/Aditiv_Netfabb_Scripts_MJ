@@ -26,11 +26,59 @@ local Weight_Y_Distance = 100.0       -- Weight for vertical Y distance
 local Weight_Part_Distance = 20.0    -- Weight for Euclidean distance
 -- ======================
 
-local logfile = "C:\\Users\\Maarten\\OneDrive\\Desktop\\Netfabb Test\\Part_Rename_MJ.log"
-system:logtofile(logfile)
+-- Standard Logging Function
+local function log(msg)
+    if system and system.log then
+        system:log(msg)
+    end
+end
 
-function log(msg)
-    system:log(msg)
+-- 1. Prompt for Directory Path
+local path_variable = ""
+local ok_input, input_path = false, nil
+local default_path = "C:\\"
+local title = "Select Log Folder"
+
+-- Try with 3 arguments (Title, DefaultPath, ShowNewFolderButton)
+ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path, true) end)
+
+-- Retry with 2 arguments if failed (API variation)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, default_path) end)
+end
+
+-- Fallback to system:inputdlg if still failed (Function missing or broken)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:inputdlg(title, title, default_path) end)
+end
+
+if ok_input and input_path and input_path ~= "" then
+    path_variable = input_path
+    log("User provided path: " .. path_variable)
+else
+    log("No directory selected or dialog cancelled. Exiting.")
+    pcall(function() system:inputdlg("No directory selected. Script will exit.", "Error", "Error") end)
+    return
+end
+
+-- 2. Correctly Format the Path
+path_variable = string.gsub(path_variable, '"', '')
+log("Sanitized path: " .. path_variable)
+
+if path_variable == "" then
+    log("Invalid path (empty after cleanup). Exiting.")
+    pcall(function() system:inputdlg("Invalid path provided.", "Error", "Error") end)
+    return
+end
+
+if string.sub(path_variable, -1) ~= "\\" then
+    path_variable = path_variable .. "\\"
+end
+
+-- Setup Logging
+local log_file_path = path_variable .. "Part_Rename_MJ.log"
+if system and system.logtofile then
+    pcall(function() system:logtofile(log_file_path) end)
 end
 
 function safe_pcall(f, ...)
