@@ -204,8 +204,19 @@ while labelled_count < #meshes do
 
     if found_any and best_candidate then
         -- Rename
-        -- Format: 000_Name, 001_Name...
-        local new_name = string.format("%03d_%s", labelled_count, best_candidate.orig_name)
+        -- Format: [001]_Name, [002]_Name...
+        -- Check if already renamed (pattern: [ddd]_)
+        local current_name = best_candidate.orig_name
+        local new_number_str = string.format("[%03d]_", labelled_count + 1)
+        local new_name
+
+        if string.match(current_name, "^%[%d%d%d%]%_") then
+            -- Replace existing number
+            new_name = string.gsub(current_name, "^%[%d%d%d%]%_", new_number_str)
+        else
+            -- Prepend (Append to start)
+            new_name = new_number_str .. current_name
+        end
 
         -- Apply Rename
         -- Use standard pcall because assignment returns nil (which safe_pcall would treat as error/ambiguous)
