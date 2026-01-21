@@ -65,7 +65,7 @@ end
 log("--- Script Started ---")
 log("CSV Export Path: " .. path_variable)
 
-local csv_file_name = "probe_volumes.csv"
+local csv_file_name = "csv_export.csv"
 local csv_path = path_variable .. csv_file_name
 log("Target CSV path: " .. csv_path)
 
@@ -91,6 +91,36 @@ local success_main, err_main = pcall(function()
         -- Remove .stl extension (case insensitive)
         local clean = string.gsub(name, "%.[sS][tT][lL]$", "")
         return clean
+    end
+
+    -- Helper: Get Mesh Metrics
+    local function get_mesh_metrics(mesh)
+        -- 1. Part Volume
+        local vol = safe_get(mesh, "volume") or 0
+
+        -- 2. Outbox Volume
+        local bb_vol = 0
+        local ob = safe_get(mesh, "outbox")
+        local dim_str = "N/A"
+        if ob then
+            local w = ob.maxx - ob.minx
+            local d = ob.maxy - ob.miny
+            local h = ob.maxz - ob.minz
+            bb_vol = w * d * h
+            dim_str = w .. " x " .. d .. " x " .. h
+        end
+
+        -- 3. Support Volume
+        local sup_vol = 0
+        local sup = safe_get(mesh, "support")
+        if sup then
+            local sv = safe_get(sup, "volume")
+            if sv then
+                sup_vol = sv
+            end
+        end
+
+        return vol, bb_vol, sup_vol, dim_str
     end
 
     -- Collect Data
@@ -132,46 +162,35 @@ local success_main, err_main = pcall(function()
 
             if tray and tray.root then
                 log("Tray root mesh count: " .. tray.root.meshcount)
+
+                local found_non_dup = false
+                local first_mesh_data = nil
+
                 for m_i = 0, tray.root.meshcount - 1 do
                     local mesh = tray.root:getmesh(m_i)
                     local raw_name = safe_get(mesh, "name")
                     log("Processing Mesh " .. m_i .. ": " .. tostring(raw_name))
                     local name = sanitize_name(raw_name)
 
+                    -- Get Metrics
+                    local vol, bb_vol, sup_vol, dim_str = get_mesh_metrics(mesh)
+                    log("  Volume: " .. vol)
+                    log("  Outbox: " .. dim_str .. " = " .. bb_vol)
+                    log("  Support Volume: " .. sup_vol)
+
+                    -- Store first mesh as fallback
+                    if m_i == 0 then
+                        first_mesh_data = {
+                            name = name,
+                            vol = vol,
+                            bb_vol = bb_vol,
+                            sup_vol = sup_vol
+                        }
+                    end
+
                     -- FILTER: Skip if name contains "dup" (case insensitive)
                     if not string.find(string.lower(name), "dup") then
-
-                        -- 1. Part Volume
-                        local vol = safe_get(mesh, "volume") or 0
-                        log("  Volume: " .. vol)
-
-                        -- 2. Outbox Volume
-                        local bb_vol = 0
-                        local ob = safe_get(mesh, "outbox")
-                        if ob then
-                            local w = ob.maxx - ob.minx
-                            local d = ob.maxy - ob.miny
-                            local h = ob.maxz - ob.minz
-                            bb_vol = w * d * h
-                            log("  Outbox: " .. w .. " x " .. d .. " x " .. h .. " = " .. bb_vol)
-                        else
-                            log("  Outbox property missing or failed.")
-                        end
-
-                        -- 3. Support Volume
-                        local sup_vol = 0
-                        local sup = safe_get(mesh, "support")
-                        if sup then
-                            local sv = safe_get(sup, "volume")
-                            if sv then
-                                sup_vol = sv
-                                log("  Support Volume: " .. sup_vol)
-                            else
-                                log("  Support object exists, but volume retrieval failed.")
-                            end
-                        else
-                            log("  No support object found.")
-                        end
+                        found_non_dup = true
 
                         -- 4. Calculate Totals (Assuming homogenous tray filled by duplicate_and_arrange)
                         local mesh_count = tray.root.meshcount
@@ -189,6 +208,26 @@ local success_main, err_main = pcall(function()
                         log("Skipping Duplicate Mesh (filtered): " .. name)
                     end
                 end
+
+                -- Fallback if no non-dup found but meshes exist
+                if not found_non_dup and first_mesh_data then
+                    log("No non-duplicate parts found in tray. Using first mesh as representative.")
+
+                    -- Sanitize name to remove _dup...
+                    local fallback_name = string.gsub(first_mesh_data.name, "_dup.*", "")
+
+                    local vol = first_mesh_data.vol
+                    local sup_vol = first_mesh_data.sup_vol
+                    local bb_vol = first_mesh_data.bb_vol
+
+                    local mesh_count = tray.root.meshcount
+                    local total_part_vol = vol * mesh_count
+                    local total_sup_vol = sup_vol * mesh_count
+
+                    local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, fallback_name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
+                    table.insert(csv_lines, row)
+                    log("  Added Fallback CSV Row: " .. row)
+                end
             else
                 log("Tray or Tray Root invalid for index " .. t_i)
             end
@@ -203,40 +242,35 @@ local success_main, err_main = pcall(function()
 
             if tray.root then
                 log("Active Tray mesh count: " .. tray.root.meshcount)
+
+                local found_non_dup = false
+                local first_mesh_data = nil
+
                 for m_i = 0, tray.root.meshcount - 1 do
                     local mesh = tray.root:getmesh(m_i)
                     local raw_name = safe_get(mesh, "name")
                     log("Processing Mesh " .. m_i .. ": " .. tostring(raw_name))
                     local name = sanitize_name(raw_name)
 
-                     -- FILTER: Skip if name contains "dup"
+                    -- Get Metrics
+                    local vol, bb_vol, sup_vol, dim_str = get_mesh_metrics(mesh)
+                    log("  Volume: " .. vol)
+                    log("  Outbox: " .. dim_str .. " = " .. bb_vol)
+                    log("  Support Volume: " .. sup_vol)
+
+                    -- Store first mesh as fallback
+                    if m_i == 0 then
+                        first_mesh_data = {
+                            name = name,
+                            vol = vol,
+                            bb_vol = bb_vol,
+                            sup_vol = sup_vol
+                        }
+                    end
+
+                    -- FILTER: Skip if name contains "dup" (case insensitive)
                     if not string.find(string.lower(name), "dup") then
-                        local vol = safe_get(mesh, "volume") or 0
-                        log("  Volume: " .. vol)
-
-                        local bb_vol = 0
-                        local ob = safe_get(mesh, "outbox")
-                        if ob then
-                            local w = ob.maxx - ob.minx
-                            local d = ob.maxy - ob.miny
-                            local h = ob.maxz - ob.minz
-                            bb_vol = w * d * h
-                            log("  Outbox: " .. w .. " x " .. d .. " x " .. h .. " = " .. bb_vol)
-                        else
-                             log("  Outbox property missing.")
-                        end
-
-                        local sup_vol = 0
-                        local sup = safe_get(mesh, "support")
-                        if sup then
-                            local sv = safe_get(sup, "volume")
-                            if sv then
-                                sup_vol = sv
-                                log("  Support Volume: " .. sup_vol)
-                            end
-                        else
-                             log("  No support object found.")
-                        end
+                        found_non_dup = true
 
                         -- 4. Calculate Totals
                         local mesh_count = tray.root.meshcount
@@ -252,6 +286,26 @@ local success_main, err_main = pcall(function()
                     else
                          log("Skipping Duplicate Mesh (filtered): " .. name)
                     end
+                end
+
+                -- Fallback if no non-dup found but meshes exist
+                if not found_non_dup and first_mesh_data then
+                    log("No non-duplicate parts found in active tray. Using first mesh as representative.")
+
+                    -- Sanitize name to remove _dup...
+                    local fallback_name = string.gsub(first_mesh_data.name, "_dup.*", "")
+
+                    local vol = first_mesh_data.vol
+                    local sup_vol = first_mesh_data.sup_vol
+                    local bb_vol = first_mesh_data.bb_vol
+
+                    local mesh_count = tray.root.meshcount
+                    local total_part_vol = vol * mesh_count
+                    local total_sup_vol = sup_vol * mesh_count
+
+                    local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, fallback_name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
+                    table.insert(csv_lines, row)
+                    log("  Added Fallback CSV Row: " .. row)
                 end
             end
         else
