@@ -211,22 +211,9 @@ local success_main, err_main = pcall(function()
 
                 -- Fallback if no non-dup found but meshes exist
                 if not found_non_dup and first_mesh_data then
-                    log("No non-duplicate parts found in tray. Using first mesh as representative.")
-
-                    -- Sanitize name to remove _dup...
-                    local fallback_name = string.gsub(first_mesh_data.name, "_dup.*", "")
-
-                    local vol = first_mesh_data.vol
-                    local sup_vol = first_mesh_data.sup_vol
-                    local bb_vol = first_mesh_data.bb_vol
-
-                    local mesh_count = tray.root.meshcount
-                    local total_part_vol = vol * mesh_count
-                    local total_sup_vol = sup_vol * mesh_count
-
-                    local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, fallback_name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
-                    table.insert(csv_lines, row)
-                    log("  Added Fallback CSV Row: " .. row)
+                    local msg = "Tray '" .. tray_name .. "' contains only duplicate parts (e.g. '" .. first_mesh_data.name .. "'). No original part found. Skipping CSV export for this tray."
+                    log("WARNING: " .. msg)
+                    pcall(function() system:inputdlg(msg, "Missing Original Part", "OK") end)
                 end
             else
                 log("Tray or Tray Root invalid for index " .. t_i)
@@ -290,22 +277,9 @@ local success_main, err_main = pcall(function()
 
                 -- Fallback if no non-dup found but meshes exist
                 if not found_non_dup and first_mesh_data then
-                    log("No non-duplicate parts found in active tray. Using first mesh as representative.")
-
-                    -- Sanitize name to remove _dup...
-                    local fallback_name = string.gsub(first_mesh_data.name, "_dup.*", "")
-
-                    local vol = first_mesh_data.vol
-                    local sup_vol = first_mesh_data.sup_vol
-                    local bb_vol = first_mesh_data.bb_vol
-
-                    local mesh_count = tray.root.meshcount
-                    local total_part_vol = vol * mesh_count
-                    local total_sup_vol = sup_vol * mesh_count
-
-                    local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, fallback_name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
-                    table.insert(csv_lines, row)
-                    log("  Added Fallback CSV Row: " .. row)
+                    local msg = "Active Tray '" .. tray_name .. "' contains only duplicate parts (e.g. '" .. first_mesh_data.name .. "'). No original part found. Skipping CSV export for this tray."
+                    log("WARNING: " .. msg)
+                    pcall(function() system:inputdlg(msg, "Missing Original Part", "OK") end)
                 end
             end
         else
