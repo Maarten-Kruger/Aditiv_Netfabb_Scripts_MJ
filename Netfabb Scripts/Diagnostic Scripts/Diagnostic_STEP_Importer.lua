@@ -5,6 +5,7 @@
 -- Fixes "invalid object method: showsavefiledialog" by using robust directory selection.
 -- Fixes "attempt to index global 'os'" by removing restricted library calls.
 -- Fixes "invalid object field: onclick" by passing function name string.
+-- Fixes "is not a valid component name" for addlabel by using correct syntax.
 
 -- --- Logging Setup ---
 local function log(msg)
@@ -274,7 +275,11 @@ local function show_main_dialog()
     maindialog.caption = "Unified STEP Importer Diagnostic"
 
     local group = maindialog:addgroupbox("Settings")
-    group:addlabel("Import Tolerance (mm):")
+
+    -- Fix: addlabel() should be called with no arguments; set caption property afterwards
+    local lbl_tol = group:addlabel()
+    lbl_tol.caption = "Import Tolerance (mm):"
+
     edit_tolerance = group:addedit("0.1")
 
     local btn_import = maindialog:addbutton("Import File (Best Guess)")
