@@ -1,6 +1,6 @@
 -- Workflow_STEP_Importer.lua
 -- GUI-based workflow for diagnosing STEP import issues and testing tolerances.
--- Updates: Removed io dependency, added robust logging, cascading loadmodel attempts, DLL error handling.
+-- Updates: Removed io dependency, added robust logging, cascading loadmodel attempts, DLL error handling, broad importer index search.
 
 -- --- Logging Setup ---
 local log_path = "C:\\Users\\Public\\Documents\\netfabb_step_debug.txt"
@@ -15,7 +15,7 @@ local function log(msg)
     end
 end
 
-log("--- Starting Workflow_STEP_Importer (v3) ---")
+log("--- Starting Workflow_STEP_Importer (v4) ---")
 log("Log file set to: " .. log_path)
 
 -- Global Variables
@@ -39,11 +39,12 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
     log("Starting Import: " .. path .. " (Tol: " .. tolerance .. ")")
     last_error = ""
 
-    -- Try standard importer (Index 0) first, then fallback to Index 1
-    local importer_indices = {0, 1}
+    -- Try importers 0 through 5 (ATF, TechSoft, Spatial, etc.)
+    -- Based on system probe, indices 0-5 exist on this system.
+    local importer_indices = {0, 1, 2, 3, 4, 5}
 
     for _, idx in ipairs(importer_indices) do
-        log("Trying createcadimport(" .. idx .. ")...")
+        -- log("Trying createcadimport(" .. idx .. ")...") -- Reduce noise
 
         local ok_imp, importer = pcall(function() return system:createcadimport(idx) end)
         if ok_imp and importer then
@@ -60,9 +61,10 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
                 log("Success: loadmodel(path, tol, 20, 20) with Importer " .. idx)
             else
                 local err = tostring(m1)
-                log("Attempt 1 (4-args) failed: " .. err)
+                -- Only log specific errors if debugging deeply, otherwise keep noise down unless it's the last attempt
                 if string.find(err, "atf_wrapper.dll") then
-                    last_error = "Missing DLL: atf_wrapper.dll. Please repair Netfabb installation."
+                     -- This specific error means the importer is broken. Log it but don't stop looking for others.
+                     -- log("Importer " .. idx .. " failed: Missing atf_wrapper.dll")
                 end
             end
 
@@ -73,30 +75,20 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
                     model = m2
                     load_success = true
                     log("Success: loadmodel(path, tol) with Importer " .. idx)
-                else
-                    log("Attempt 2 (2-args) failed: " .. tostring(m2))
                 end
             end
 
             -- Attempt 3: 1 Argument (path)
-            if not load_success then
-                local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
-                if ok3 and m3 then
-                    model = m3
-                    load_success = true
-                    log("Success: loadmodel(path) with Importer " .. idx .. " (Tolerance ignored)")
-                else
-                    log("Attempt 3 (1-arg) failed: " .. tostring(m3))
-                end
-            end
+            -- Removed Attempt 3 based on logs confirming 'invalid parameter' for it.
+            -- Most importers expect at least tolerance.
 
             if load_success and model then
                 -- Check entity count
                 local count = 0
                 pcall(function() count = model.entitycount end)
-                log("Entities found: " .. count)
 
                 if count > 0 then
+                    log("Importer " .. idx .. " loaded " .. count .. " entities.")
                     if add_to_tray then
                         local tray = get_tray()
                         if tray then
@@ -115,18 +107,16 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
                             log("Warning: No active tray to add parts to.")
                         end
                     end
-                    return true -- Success!
+                    return true -- Success! Stop searching.
                 else
-                    log("Warning: Model loaded but has 0 entities. Trying next importer...")
+                    log("Importer " .. idx .. " loaded model but found 0 entities. Continuing search...")
                 end
             end
-        else
-             log("Failed to create importer index " .. idx)
         end
     end
 
     if last_error == "" then
-        last_error = "All import attempts failed (Importers 0 & 1)."
+        last_error = "All importers (0-5) failed to load the model."
     end
     log("Error: " .. last_error)
     return false
@@ -140,7 +130,7 @@ function on_import_standard()
     if not path or path == "" then return end
 
     local tol = tonumber(edit_tolerance.text) or 0.1
-    log("User Triggered: Standard Import. Tol: " .. tol)
+    log("User Triggered: Import. Tol: " .. tol)
 
     local success = run_import(path, tol, true, "_Tol" .. tol)
     if success then
@@ -216,7 +206,7 @@ function show_workflow_dialog()
     b_std.caption = "Import File"
     b_std.onclick = "on_import_standard"
 
-    -- Button 3: Sweep
+    -- Button 2: Sweep
     local b_sweep = g_act:addbutton()
     b_sweep.caption = "Run Tolerance Sweep (0.001 - 5.0)"
     b_sweep.onclick = "on_import_sweep"
