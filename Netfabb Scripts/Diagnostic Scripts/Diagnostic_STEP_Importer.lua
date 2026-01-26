@@ -4,6 +4,7 @@
 -- Fixes API call to system:createcadimport and ensures robust loadmodel syntax.
 -- Fixes "invalid object method: showsavefiledialog" by using robust directory selection.
 -- Fixes "attempt to index global 'os'" by removing restricted library calls.
+-- Fixes "invalid object field: onclick" by passing function name string.
 
 -- --- Logging Setup ---
 local function log(msg)
@@ -58,14 +59,14 @@ log("--- Starting Unified STEP Importer Diagnostic ---")
 log("Log file: " .. log_file_full_path)
 
 -- --- Global Variables ---
-local maindialog = nil
-local edit_tolerance = nil
-local last_error = ""
+maindialog = nil -- Must be global or accessible
+edit_tolerance = nil
+last_error = ""
 
 -- --- Core Logic ---
 
 -- 1. Diagnostic Scan Logic
-local function run_diagnostic_scan(path)
+function run_diagnostic_scan(path)
     log("Starting Diagnostic Scan on: " .. path)
 
     local deviations = {0.1, 0.01} -- mm
@@ -140,7 +141,7 @@ local function run_diagnostic_scan(path)
 end
 
 -- 2. Import Workflow Logic
-local function run_import_workflow(path, tolerance)
+function run_import_workflow(path, tolerance)
     log("Starting Import Workflow: " .. path .. " (Tol: " .. tolerance .. ")")
     last_error = ""
 
@@ -240,13 +241,14 @@ end
 
 -- --- GUI Callbacks ---
 
-local function on_btn_diagnostic()
+-- Functions must be GLOBAL to be called by name from the dialog engine
+function on_btn_diagnostic()
     local path = system:showopenfiledialog('Select STEP file for Diagnostic', '*.stp;*.step')
     if not path or path == "" then return end
     run_diagnostic_scan(path)
 end
 
-local function on_btn_import()
+function on_btn_import()
     local path = system:showopenfiledialog('Select STEP file for Import', '*.stp;*.step')
     if not path or path == "" then return end
 
@@ -261,7 +263,7 @@ local function on_btn_import()
     end
 end
 
-local function on_btn_close()
+function on_btn_close()
     if maindialog then maindialog:close() end
 end
 
@@ -276,13 +278,16 @@ local function show_main_dialog()
     edit_tolerance = group:addedit("0.1")
 
     local btn_import = maindialog:addbutton("Import File (Best Guess)")
-    btn_import.onclick = on_btn_import
+    -- FIX: onclick expects a STRING name of the global function, not the function itself
+    btn_import.onclick = "on_btn_import"
 
     local btn_diag = maindialog:addbutton("Run Deep Diagnostic Scan")
-    btn_diag.onclick = on_btn_diagnostic
+    -- FIX: onclick expects a STRING name of the global function
+    btn_diag.onclick = "on_btn_diagnostic"
 
     local btn_close = maindialog:addbutton("Close")
-    btn_close.onclick = on_btn_close
+    -- FIX: onclick expects a STRING name of the global function
+    btn_close.onclick = "on_btn_close"
 
     maindialog:show()
 end
