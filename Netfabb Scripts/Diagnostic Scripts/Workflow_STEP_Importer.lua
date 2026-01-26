@@ -1,17 +1,27 @@
 -- Workflow_STEP_Importer.lua
 -- GUI-based workflow for diagnosing STEP import issues and testing tolerances.
+-- Updates: Removed io dependency, added robust logging, cascading loadmodel attempts.
 
--- Standard Logging
+-- --- Logging Setup ---
+local log_path = "C:\\Users\\Public\\Documents\\netfabb_step_debug.txt"
+if system and system.logtofile then
+    -- Try to set log file immediately
+    pcall(function() system:logtofile(log_path) end)
+end
+
 local function log(msg)
     if system and system.log then
         system:log(msg)
     end
 end
 
--- Global Dialog Variables
+log("--- Starting Workflow_STEP_Importer (v2) ---")
+log("Log file set to: " .. log_path)
+
+-- Global Variables
 local maindialog = nil
 local edit_tolerance = nil
-local last_path = ""
+local last_error = ""
 
 -- --- Helper Functions ---
 
@@ -24,50 +34,77 @@ local function get_tray()
     return nil
 end
 
-local function file_exists(name)
-   local f = io.open(name, "r")
-   if f ~= nil then io.close(f) return true else return false end
-end
-
-local function copy_file(src, dst)
-    -- Simple binary copy since os.execute might be restricted or slow
-    local infile, err1 = io.open(src, "rb")
-    if not infile then return false, "Read Error: " .. tostring(err1) end
-    local content = infile:read("*a")
-    infile:close()
-
-    local outfile, err2 = io.open(dst, "wb")
-    if not outfile then return false, "Write Error: " .. tostring(err2) end
-    outfile:write(content)
-    outfile:close()
-    return true, nil
-end
-
--- Core Import Function
+-- Core Import Function with Cascading Attempts
 local function run_import(path, tolerance, add_to_tray, name_suffix)
     log("Starting Import: " .. path .. " (Tol: " .. tolerance .. ")")
+    last_error = ""
 
     local ok_imp, importer = pcall(function() return system:createcadimport(0) end)
     if not ok_imp or not importer then
-        log("Error: Failed to create CAD importer.")
+        last_error = "Failed to create CAD importer."
+        log("Error: " .. last_error)
         return nil
     end
 
-    local ok_load, model = pcall(function() return importer:loadmodel(path, tolerance) end)
-    if not ok_load then
-        log("Error: loadmodel crashed (Runtime Error). Path might be invalid or format unsupported.")
-        return nil
+    local model = nil
+    local load_success = false
+    local attempts = {}
+
+    -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle) - Common in recent versions
+    -- 20, 20 are placeholder values found in Script6
+    table.insert(attempts, "4-args")
+    local ok1, m1 = pcall(function() return importer:loadmodel(path, tolerance, 20, 20) end)
+    if ok1 and m1 then
+        model = m1
+        load_success = true
+        log("Success: loadmodel(path, tol, 20, 20) worked.")
+    else
+        log("Attempt 1 (4-args) failed: " .. tostring(m1))
     end
-    if not model then
-        log("Error: loadmodel returned nil.")
+
+    -- Attempt 2: 2 Arguments (path, tol) - BaseRoutines style
+    if not load_success then
+        table.insert(attempts, "2-args")
+        local ok2, m2 = pcall(function() return importer:loadmodel(path, tolerance) end)
+        if ok2 and m2 then
+            model = m2
+            load_success = true
+            log("Success: loadmodel(path, tol) worked.")
+        else
+            log("Attempt 2 (2-args) failed: " .. tostring(m2))
+        end
+    end
+
+    -- Attempt 3: 1 Argument (path) - Fallback ignoring tolerance
+    if not load_success then
+        table.insert(attempts, "1-arg")
+        local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
+        if ok3 and m3 then
+            model = m3
+            load_success = true
+            log("Success: loadmodel(path) worked (Tolerance ignored).")
+        else
+            log("Attempt 3 (1-arg) failed: " .. tostring(m3))
+        end
+    end
+
+    if not load_success or not model then
+        last_error = "All loadmodel attempts failed."
+        log("Error: " .. last_error)
         return nil
     end
 
     local count = 0
     pcall(function() count = model.entitycount end)
-    log("Success. Entities found: " .. count)
+    log("Entities found: " .. count)
 
-    if add_to_tray and count > 0 then
+    if count == 0 then
+        last_error = "Model loaded but contains 0 entities."
+        log("Warning: " .. last_error)
+        return nil
+    end
+
+    if add_to_tray then
         local tray = get_tray()
         if tray then
             local root = tray.root
@@ -88,13 +125,31 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
     return true
 end
 
+-- Alternative Import using system:importfile
+local function run_importfile(path)
+    log("Starting Alternative Import (system:importfile): " .. path)
+    local ok, parts = pcall(function() return system:importfile(path) end)
+
+    if ok and parts then
+        log("system:importfile success. Type: " .. type(parts))
+        if type(parts) == 'table' then
+             log("Imported " .. #parts .. " parts.")
+             return true
+        end
+        return true -- It worked, but maybe return structure varies
+    else
+        last_error = "system:importfile failed: " .. tostring(parts)
+        log("Error: " .. last_error)
+        return false
+    end
+end
+
 -- --- Dialog Callbacks ---
 
 -- 1. Standard Import
 function on_import_standard()
     local path = system:showopendialog("*.stp;*.step")
     if not path or path == "" then return end
-    last_path = path
 
     local tol = tonumber(edit_tolerance.text) or 0.1
     log("User Triggered: Standard Import. Tol: " .. tol)
@@ -103,35 +158,22 @@ function on_import_standard()
     if success then
         system:messagedlg("Import Successful!")
     else
-        system:messagedlg("Import Failed. Check Log.")
+        system:messagedlg("Import Failed.\nReason: " .. last_error .. "\n\nLog saved to:\n" .. log_path)
     end
 end
 
--- 2. Safe Import (Copy)
-function on_import_safe()
+-- 2. Alternative Import
+function on_import_alt()
     local path = system:showopendialog("*.stp;*.step")
     if not path or path == "" then return end
-    last_path = path
 
-    local tol = tonumber(edit_tolerance.text) or 0.1
-    log("User Triggered: Safe Import. Tol: " .. tol)
+    log("User Triggered: Alternative Import.")
 
-    -- Copy to Public Documents to avoid path issues
-    local temp_path = "C:\\Users\\Public\\Documents\\temp_import_safe.stp"
-    log("Copying to: " .. temp_path)
-
-    local ok_cp, err_cp = copy_file(path, temp_path)
-    if not ok_cp then
-        log("Copy Failed: " .. tostring(err_cp))
-        system:messagedlg("Could not create temp file. See log.")
-        return
-    end
-
-    local success = run_import(temp_path, tol, true, "_Safe_Tol" .. tol)
+    local success = run_importfile(path)
     if success then
-        system:messagedlg("Safe Import Successful!")
+        system:messagedlg("Alternative Import Successful!")
     else
-        system:messagedlg("Safe Import Failed. Check Log.")
+        system:messagedlg("Alternative Import Failed.\nReason: " .. last_error .. "\n\nLog saved to:\n" .. log_path)
     end
 end
 
@@ -139,16 +181,22 @@ end
 function on_import_sweep()
     local path = system:showopendialog("*.stp;*.step")
     if not path or path == "" then return end
-    last_path = path
 
     log("User Triggered: Sweep Import.")
     local tols = {0.001, 0.01, 0.1, 1.0, 5.0}
+    local success_count = 0
 
     for _, tol in ipairs(tols) do
-        run_import(path, tol, true, "_Sweep_Tol" .. tol)
+        if run_import(path, tol, true, "_Sweep_Tol" .. tol) then
+            success_count = success_count + 1
+        end
     end
 
-    system:messagedlg("Sweep Complete. Check Tray.")
+    if success_count > 0 then
+        system:messagedlg("Sweep Complete. Imported " .. success_count .. "/" .. #tols .. " variations.\nCheck Tray.")
+    else
+        system:messagedlg("Sweep Failed. No variations imported.\nReason: " .. last_error .. "\n\nLog saved to:\n" .. log_path)
+    end
 end
 
 -- Close
@@ -195,10 +243,10 @@ function show_workflow_dialog()
     b_std.caption = "Import File (Standard)"
     b_std.onclick = "on_import_standard"
 
-    -- Button 2: Safe
+    -- Button 2: Alt
     local b_safe = g_act:addbutton()
-    b_safe.caption = "Safe Import (Copy First)"
-    b_safe.onclick = "on_import_safe"
+    b_safe.caption = "Alternative Import (importfile)"
+    b_safe.onclick = "on_import_alt"
 
     -- Button 3: Sweep
     local b_sweep = g_act:addbutton()

@@ -1,5 +1,13 @@
 -- Diagnostic_STEP_Importer.lua
 -- Diagnostic script to test STEP import with variable accuracy settings.
+-- Updates: Added cascading loadmodel attempts, robust logging to file.
+
+-- --- Logging Setup ---
+local log_path = "C:\\Users\\Public\\Documents\\netfabb_step_debug.txt"
+if system and system.logtofile then
+    -- Try to set log file immediately
+    pcall(function() system:logtofile(log_path) end)
+end
 
 -- Standard Logging Function
 local function log(msg)
@@ -22,6 +30,7 @@ local function get_tray()
 end
 
 log("--- Starting Diagnostic_STEP_Importer ---")
+log("Log file set to: " .. log_path)
 
 -- 1. File Selection
 local ok_dlg, file_path = pcall(function() return system:showopendialog("*.stp;*.step") end)
@@ -32,11 +41,6 @@ if not ok_dlg or not file_path or file_path == "" then
     return
 end
 
--- 2. Setup Logging
-local log_file_path = file_path .. "_diagnostic_log.txt"
-if system and system.logtofile then
-    pcall(function() system:logtofile(log_file_path) end)
-end
 log("Selected file: " .. file_path)
 
 -- 3. Parameter Input
@@ -80,17 +84,45 @@ local function test_import(path, tol)
         return nil
     end
 
-    -- loadmodel(filename, accuracy)
-    -- Using the 2-argument version (path, accuracy) as seen in BaseRoutines.lua
-    local ok_load, model = pcall(function() return importer:loadmodel(path, tol) end)
+    local model = nil
+    local load_success = false
 
-    if not ok_load then
-        log("  loadmodel call failed (Runtime Error).")
-        return nil
+    -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle)
+    local ok1, m1 = pcall(function() return importer:loadmodel(path, tol, 20, 20) end)
+    if ok1 and m1 then
+        model = m1
+        load_success = true
+        log("  Success: loadmodel(path, tol, 20, 20) worked.")
+    else
+        log("  Attempt 1 (4-args) failed: " .. tostring(m1))
     end
 
-    if not model then
-        log("  loadmodel returned nil.")
+    -- Attempt 2: 2 Arguments (path, tol)
+    if not load_success then
+        local ok2, m2 = pcall(function() return importer:loadmodel(path, tol) end)
+        if ok2 and m2 then
+            model = m2
+            load_success = true
+            log("  Success: loadmodel(path, tol) worked.")
+        else
+            log("  Attempt 2 (2-args) failed: " .. tostring(m2))
+        end
+    end
+
+    -- Attempt 3: 1 Argument (path)
+    if not load_success then
+        local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
+        if ok3 and m3 then
+            model = m3
+            load_success = true
+            log("  Success: loadmodel(path) worked (Tolerance ignored).")
+        else
+            log("  Attempt 3 (1-arg) failed: " .. tostring(m3))
+        end
+    end
+
+    if not load_success or not model then
+        log("  loadmodel returned nil or failed all attempts.")
         return nil
     end
 
@@ -153,4 +185,4 @@ for _, tol in ipairs(tolerances) do
 end
 
 log("--- Diagnostic Complete ---")
-pcall(function() system:inputdlg("Diagnostic Complete. Check log: " .. log_file_path, "Done", "OK") end)
+pcall(function() system:inputdlg("Diagnostic Complete. Check log: " .. log_path, "Done", "OK") end)
