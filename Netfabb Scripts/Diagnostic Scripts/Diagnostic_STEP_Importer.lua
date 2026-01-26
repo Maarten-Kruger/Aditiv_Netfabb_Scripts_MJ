@@ -1,6 +1,6 @@
 -- Diagnostic_STEP_Importer.lua
 -- Diagnostic script to test STEP import with variable accuracy settings.
--- Updates: Added cascading loadmodel attempts, robust logging to file.
+-- Updates: Added cascading loadmodel attempts, DLL check, importer fallback (0/1).
 
 -- --- Logging Setup ---
 local log_path = "C:\\Users\\Public\\Documents\\netfabb_step_debug.txt"
@@ -78,79 +78,85 @@ end
 local function test_import(path, tol)
     log("Testing Import with Tolerance: " .. tol)
 
-    local ok, importer = pcall(function() return system:createcadimport(0) end)
-    if not ok or not importer then
-        log("  Failed to create CAD importer.")
-        return nil
-    end
-
-    local model = nil
-    local load_success = false
-
-    -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle)
-    local ok1, m1 = pcall(function() return importer:loadmodel(path, tol, 20, 20) end)
-    if ok1 and m1 then
-        model = m1
-        load_success = true
-        log("  Success: loadmodel(path, tol, 20, 20) worked.")
-    else
-        log("  Attempt 1 (4-args) failed: " .. tostring(m1))
-    end
-
-    -- Attempt 2: 2 Arguments (path, tol)
-    if not load_success then
-        local ok2, m2 = pcall(function() return importer:loadmodel(path, tol) end)
-        if ok2 and m2 then
-            model = m2
-            load_success = true
-            log("  Success: loadmodel(path, tol) worked.")
+    local importer_indices = {0, 1}
+    for _, idx in ipairs(importer_indices) do
+        local ok, importer = pcall(function() return system:createcadimport(idx) end)
+        if not ok or not importer then
+            log("  Failed to create CAD importer " .. idx)
         else
-            log("  Attempt 2 (2-args) failed: " .. tostring(m2))
+            log("  Created CAD importer " .. idx)
+            local model = nil
+            local load_success = false
+
+            -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle)
+            local ok1, m1 = pcall(function() return importer:loadmodel(path, tol, 20, 20) end)
+            if ok1 and m1 then
+                model = m1
+                load_success = true
+                log("  Success: loadmodel(path, tol, 20, 20) with Importer " .. idx)
+            else
+                local err = tostring(m1)
+                log("  Attempt 1 (4-args) failed: " .. err)
+                if string.find(err, "atf_wrapper.dll") then
+                     log("  CRITICAL ERROR: Missing atf_wrapper.dll. Installation likely corrupt.")
+                end
+            end
+
+            -- Attempt 2: 2 Arguments (path, tol)
+            if not load_success then
+                local ok2, m2 = pcall(function() return importer:loadmodel(path, tol) end)
+                if ok2 and m2 then
+                    model = m2
+                    load_success = true
+                    log("  Success: loadmodel(path, tol) with Importer " .. idx)
+                else
+                    log("  Attempt 2 (2-args) failed: " .. tostring(m2))
+                end
+            end
+
+            -- Attempt 3: 1 Argument (path)
+            if not load_success then
+                local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
+                if ok3 and m3 then
+                    model = m3
+                    load_success = true
+                    log("  Success: loadmodel(path) with Importer " .. idx .. " (Tolerance ignored).")
+                else
+                    log("  Attempt 3 (1-arg) failed: " .. tostring(m3))
+                end
+            end
+
+            if load_success and model then
+                -- Get Stats
+                local entity_count = 0
+                pcall(function() entity_count = model.entitycount end)
+                log("  Model loaded. Entity Count: " .. entity_count)
+
+                if entity_count > 0 then
+                    local meshes = {}
+                    local total_tris = 0
+                    local total_verts = 0
+
+                    for i = 0, entity_count - 1 do
+                        local ok_mesh, mesh = pcall(function() return model:createsinglemesh(i) end)
+                        if ok_mesh and mesh then
+                            table.insert(meshes, mesh)
+                            pcall(function()
+                                total_tris = total_tris + mesh.trianglecount
+                                total_verts = total_verts + mesh.vertexcount
+                            end)
+                        end
+                    end
+
+                    log("  Import Success. Meshes: " .. #meshes .. ", Tris: " .. total_tris .. ", Verts: " .. total_verts)
+                    return meshes, total_tris, total_verts
+                end
+            end
         end
     end
 
-    -- Attempt 3: 1 Argument (path)
-    if not load_success then
-        local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
-        if ok3 and m3 then
-            model = m3
-            load_success = true
-            log("  Success: loadmodel(path) worked (Tolerance ignored).")
-        else
-            log("  Attempt 3 (1-arg) failed: " .. tostring(m3))
-        end
-    end
-
-    if not load_success or not model then
-        log("  loadmodel returned nil or failed all attempts.")
-        return nil
-    end
-
-    local entity_count = 0
-    pcall(function() entity_count = model.entitycount end)
-    log("  Model loaded. Entity Count: " .. entity_count)
-
-    if entity_count == 0 then
-        return nil
-    end
-
-    local meshes = {}
-    local total_tris = 0
-    local total_verts = 0
-
-    for i = 0, entity_count - 1 do
-        local ok_mesh, mesh = pcall(function() return model:createsinglemesh(i) end)
-        if ok_mesh and mesh then
-            table.insert(meshes, mesh)
-            pcall(function()
-                total_tris = total_tris + mesh.trianglecount
-                total_verts = total_verts + mesh.vertexcount
-            end)
-        end
-    end
-
-    log("  Import Success. Meshes: " .. #meshes .. ", Tris: " .. total_tris .. ", Verts: " .. total_verts)
-    return meshes, total_tris, total_verts
+    log("  All import attempts failed.")
+    return nil
 end
 
 -- 5. Execution Loop

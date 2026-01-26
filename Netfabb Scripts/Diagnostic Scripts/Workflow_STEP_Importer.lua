@@ -1,6 +1,6 @@
 -- Workflow_STEP_Importer.lua
 -- GUI-based workflow for diagnosing STEP import issues and testing tolerances.
--- Updates: Removed io dependency, added robust logging, cascading loadmodel attempts.
+-- Updates: Removed io dependency, added robust logging, cascading loadmodel attempts, DLL error handling.
 
 -- --- Logging Setup ---
 local log_path = "C:\\Users\\Public\\Documents\\netfabb_step_debug.txt"
@@ -15,7 +15,7 @@ local function log(msg)
     end
 end
 
-log("--- Starting Workflow_STEP_Importer (v2) ---")
+log("--- Starting Workflow_STEP_Importer (v3) ---")
 log("Log file set to: " .. log_path)
 
 -- Global Variables
@@ -39,109 +39,97 @@ local function run_import(path, tolerance, add_to_tray, name_suffix)
     log("Starting Import: " .. path .. " (Tol: " .. tolerance .. ")")
     last_error = ""
 
-    local ok_imp, importer = pcall(function() return system:createcadimport(0) end)
-    if not ok_imp or not importer then
-        last_error = "Failed to create CAD importer."
-        log("Error: " .. last_error)
-        return nil
-    end
+    -- Try standard importer (Index 0) first, then fallback to Index 1
+    local importer_indices = {0, 1}
 
-    local model = nil
-    local load_success = false
-    local attempts = {}
+    for _, idx in ipairs(importer_indices) do
+        log("Trying createcadimport(" .. idx .. ")...")
 
-    -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle) - Common in recent versions
-    -- 20, 20 are placeholder values found in Script6
-    table.insert(attempts, "4-args")
-    local ok1, m1 = pcall(function() return importer:loadmodel(path, tolerance, 20, 20) end)
-    if ok1 and m1 then
-        model = m1
-        load_success = true
-        log("Success: loadmodel(path, tol, 20, 20) worked.")
-    else
-        log("Attempt 1 (4-args) failed: " .. tostring(m1))
-    end
+        local ok_imp, importer = pcall(function() return system:createcadimport(idx) end)
+        if ok_imp and importer then
 
-    -- Attempt 2: 2 Arguments (path, tol) - BaseRoutines style
-    if not load_success then
-        table.insert(attempts, "2-args")
-        local ok2, m2 = pcall(function() return importer:loadmodel(path, tolerance) end)
-        if ok2 and m2 then
-            model = m2
-            load_success = true
-            log("Success: loadmodel(path, tol) worked.")
-        else
-            log("Attempt 2 (2-args) failed: " .. tostring(m2))
-        end
-    end
+            -- Cascading loadmodel signatures
+            local model = nil
+            local load_success = false
 
-    -- Attempt 3: 1 Argument (path) - Fallback ignoring tolerance
-    if not load_success then
-        table.insert(attempts, "1-arg")
-        local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
-        if ok3 and m3 then
-            model = m3
-            load_success = true
-            log("Success: loadmodel(path) worked (Tolerance ignored).")
-        else
-            log("Attempt 3 (1-arg) failed: " .. tostring(m3))
-        end
-    end
-
-    if not load_success or not model then
-        last_error = "All loadmodel attempts failed."
-        log("Error: " .. last_error)
-        return nil
-    end
-
-    local count = 0
-    pcall(function() count = model.entitycount end)
-    log("Entities found: " .. count)
-
-    if count == 0 then
-        last_error = "Model loaded but contains 0 entities."
-        log("Warning: " .. last_error)
-        return nil
-    end
-
-    if add_to_tray then
-        local tray = get_tray()
-        if tray then
-            local root = tray.root
-            for i = 0, count - 1 do
-                local ok_m, mesh = pcall(function() return model:createsinglemesh(i) end)
-                if ok_m and mesh then
-                    local ok_add, item = pcall(function() return root:addmesh(mesh) end)
-                    if ok_add and item and name_suffix then
-                        pcall(function() item.name = "Part" .. name_suffix .. "_" .. i end)
-                    end
+            -- Attempt 1: 4 Arguments (path, tol, edge_angle, face_angle)
+            local ok1, m1 = pcall(function() return importer:loadmodel(path, tolerance, 20, 20) end)
+            if ok1 and m1 then
+                model = m1
+                load_success = true
+                log("Success: loadmodel(path, tol, 20, 20) with Importer " .. idx)
+            else
+                local err = tostring(m1)
+                log("Attempt 1 (4-args) failed: " .. err)
+                if string.find(err, "atf_wrapper.dll") then
+                    last_error = "Missing DLL: atf_wrapper.dll. Please repair Netfabb installation."
                 end
             end
-            pcall(function() application:triggerdesktopevent("updateparts") end)
+
+            -- Attempt 2: 2 Arguments (path, tol)
+            if not load_success then
+                local ok2, m2 = pcall(function() return importer:loadmodel(path, tolerance) end)
+                if ok2 and m2 then
+                    model = m2
+                    load_success = true
+                    log("Success: loadmodel(path, tol) with Importer " .. idx)
+                else
+                    log("Attempt 2 (2-args) failed: " .. tostring(m2))
+                end
+            end
+
+            -- Attempt 3: 1 Argument (path)
+            if not load_success then
+                local ok3, m3 = pcall(function() return importer:loadmodel(path) end)
+                if ok3 and m3 then
+                    model = m3
+                    load_success = true
+                    log("Success: loadmodel(path) with Importer " .. idx .. " (Tolerance ignored)")
+                else
+                    log("Attempt 3 (1-arg) failed: " .. tostring(m3))
+                end
+            end
+
+            if load_success and model then
+                -- Check entity count
+                local count = 0
+                pcall(function() count = model.entitycount end)
+                log("Entities found: " .. count)
+
+                if count > 0 then
+                    if add_to_tray then
+                        local tray = get_tray()
+                        if tray then
+                            local root = tray.root
+                            for i = 0, count - 1 do
+                                local ok_m, mesh = pcall(function() return model:createsinglemesh(i) end)
+                                if ok_m and mesh then
+                                    local ok_add, item = pcall(function() return root:addmesh(mesh) end)
+                                    if ok_add and item and name_suffix then
+                                        pcall(function() item.name = "Part" .. name_suffix .. "_" .. i end)
+                                    end
+                                end
+                            end
+                            pcall(function() application:triggerdesktopevent("updateparts") end)
+                        else
+                            log("Warning: No active tray to add parts to.")
+                        end
+                    end
+                    return true -- Success!
+                else
+                    log("Warning: Model loaded but has 0 entities. Trying next importer...")
+                end
+            end
         else
-            log("Warning: No active tray to add parts to.")
+             log("Failed to create importer index " .. idx)
         end
     end
-    return true
-end
 
--- Alternative Import using system:importfile
-local function run_importfile(path)
-    log("Starting Alternative Import (system:importfile): " .. path)
-    local ok, parts = pcall(function() return system:importfile(path) end)
-
-    if ok and parts then
-        log("system:importfile success. Type: " .. type(parts))
-        if type(parts) == 'table' then
-             log("Imported " .. #parts .. " parts.")
-             return true
-        end
-        return true -- It worked, but maybe return structure varies
-    else
-        last_error = "system:importfile failed: " .. tostring(parts)
-        log("Error: " .. last_error)
-        return false
+    if last_error == "" then
+        last_error = "All import attempts failed (Importers 0 & 1)."
     end
+    log("Error: " .. last_error)
+    return false
 end
 
 -- --- Dialog Callbacks ---
@@ -159,21 +147,6 @@ function on_import_standard()
         system:messagedlg("Import Successful!")
     else
         system:messagedlg("Import Failed.\nReason: " .. last_error .. "\n\nLog saved to:\n" .. log_path)
-    end
-end
-
--- 2. Alternative Import
-function on_import_alt()
-    local path = system:showopendialog("*.stp;*.step")
-    if not path or path == "" then return end
-
-    log("User Triggered: Alternative Import.")
-
-    local success = run_importfile(path)
-    if success then
-        system:messagedlg("Alternative Import Successful!")
-    else
-        system:messagedlg("Alternative Import Failed.\nReason: " .. last_error .. "\n\nLog saved to:\n" .. log_path)
     end
 end
 
@@ -240,13 +213,8 @@ function show_workflow_dialog()
 
     -- Button 1: Standard
     local b_std = g_act:addbutton()
-    b_std.caption = "Import File (Standard)"
+    b_std.caption = "Import File"
     b_std.onclick = "on_import_standard"
-
-    -- Button 2: Alt
-    local b_safe = g_act:addbutton()
-    b_safe.caption = "Alternative Import (importfile)"
-    b_safe.onclick = "on_import_alt"
 
     -- Button 3: Sweep
     local b_sweep = g_act:addbutton()
