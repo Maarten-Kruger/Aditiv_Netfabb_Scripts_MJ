@@ -2,20 +2,59 @@
 -- Unified Diagnostic and Workflow Tool for STEP Import
 -- Merges functionality of previous Diagnostic and Workflow scripts.
 -- Fixes API call to system:createcadimport and ensures robust loadmodel syntax.
+-- Fixes "invalid object method: showsavefiledialog" by using robust directory selection.
 
 -- --- Logging Setup ---
-local log_file_path = system:showsavefiledialog("Save Diagnostic Log As", "Text Files (*.txt)|*.txt", "STEP_Unified_Log.txt")
-if log_file_path and log_file_path ~= "" then
-    pcall(function() system:logtofile(log_file_path) end)
-end
-
 local function log(msg)
     pcall(function() system:log(msg) end)
 end
 
+-- Robust Directory Selection (adapted from Part_Rename_MJ.lua)
+local log_path = "C:\\Users\\Public\\Documents\\"
+local default_filename = "STEP_Unified_Log.txt"
+local log_file_full_path = ""
+
+local ok_input, input_path = false, nil
+local title = "Select Log Folder"
+
+-- Try with 3 arguments (Title, DefaultPath, ShowNewFolderButton)
+ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, log_path, true) end)
+
+-- Retry with 2 arguments if failed (API variation)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:showdirectoryselectdialog(title, log_path) end)
+end
+
+-- Fallback to system:inputdlg if still failed (Function missing or broken)
+if not ok_input then
+    ok_input, input_path = pcall(function() return system:inputdlg(title, title, log_path) end)
+end
+
+if ok_input and input_path and input_path ~= "" then
+    -- Cleanup path
+    local clean_path = string.gsub(input_path, '"', '')
+    if string.sub(clean_path, -1) ~= "\\" then
+        clean_path = clean_path .. "\\"
+    end
+    log_file_full_path = clean_path .. default_filename
+else
+    log("No directory selected or dialog failed. Using default.")
+    log_file_full_path = log_path .. default_filename
+end
+
+-- Initialize Log File
+if log_file_full_path and log_file_full_path ~= "" then
+    local ok_log, err_log = pcall(function() system:logtofile(log_file_full_path) end)
+    if not ok_log then
+         -- Try fallback path if permission error or similar
+         log_file_full_path = "C:\\" .. default_filename
+         pcall(function() system:logtofile(log_file_full_path) end)
+    end
+end
+
 log("--- Starting Unified STEP Importer Diagnostic ---")
 log("Time: " .. os.date("%Y-%m-%d %H:%M:%S"))
-if log_file_path then log("Log file: " .. log_file_path) end
+log("Log file: " .. log_file_full_path)
 
 -- --- Global Variables ---
 local maindialog = nil
@@ -100,7 +139,7 @@ local function run_diagnostic_scan(path)
         end
     end
     log("Diagnostic Scan Complete.")
-    pcall(function() system:inputdlg("Diagnostic Scan Complete. Check log.", "Done") end)
+    pcall(function() system:inputdlg("Diagnostic Scan Complete. Check log: " .. log_file_full_path, "Done") end)
 end
 
 -- 2. Import Workflow Logic
@@ -122,13 +161,6 @@ local function run_import_workflow(path, tolerance)
             local load_success = false
 
             -- Attempt Syntax 1: loadmodel(path, deviation, angle_tol, max_edge_len)
-            -- Using 20 deg angle and 1000 edge length (or 5? using 1000 to minimize edge splitting unless needed)
-            -- User image showed 5, but Workflow previously used 1000.
-            -- Let's stick to a reasonable default or what the user likely wants.
-            -- If tolerance is the main concern, edge length is less critical unless specified.
-            -- We will use 1000 as per previous workflow to be safe, or we could use 0 to disable max edge length.
-            -- However, let's try the user's image example: 0.1, 20, 5. Maybe 5 is better?
-            -- Let's use 1000 to be safe for general import, as 5mm might subdivide too much for large parts.
             local angle_tol = 20
             local max_edge = 1000
 
@@ -170,8 +202,6 @@ local function run_import_workflow(path, tolerance)
                 if count > 0 then
                      if netfabbtrayhandler then
                          local t_ok, tray = pcall(function() return netfabbtrayhandler:gettray(0) end) -- Default to tray 0
-                         -- If tray 0 doesn't exist or is invalid, try to find active tray or create one?
-                         -- Usually gettray(0) is the active one in single-tray context.
 
                          if t_ok and tray then
                              local root = tray:getroot()
