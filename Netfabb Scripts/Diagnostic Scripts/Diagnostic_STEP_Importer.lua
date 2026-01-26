@@ -3,6 +3,7 @@
 -- Merges functionality of previous Diagnostic and Workflow scripts.
 -- Fixes API call to system:createcadimport and ensures robust loadmodel syntax.
 -- Fixes "invalid object method: showsavefiledialog" by using robust directory selection.
+-- Fixes "attempt to index global 'os'" by removing restricted library calls.
 
 -- --- Logging Setup ---
 local function log(msg)
@@ -53,7 +54,7 @@ if log_file_full_path and log_file_full_path ~= "" then
 end
 
 log("--- Starting Unified STEP Importer Diagnostic ---")
-log("Time: " .. os.date("%Y-%m-%d %H:%M:%S"))
+-- Removed os.date as os library is restricted
 log("Log file: " .. log_file_full_path)
 
 -- --- Global Variables ---
@@ -93,14 +94,12 @@ local function run_diagnostic_scan(path)
                 for _, edge in ipairs(edge_lengths) do
                     log("    Params: Dev=" .. dev .. ", Angle=" .. angle_tolerance .. ", Edge=" .. edge)
 
-                    local t0 = os.clock()
                     local load_status, model = pcall(function()
                         return importer:loadmodel(path, dev, angle_tolerance, edge)
                     end)
-                    local t1 = os.clock()
 
                     if load_status and model then
-                        log("      [SUCCESS] Model loaded in " .. string.format("%.4f", t1-t0) .. "s")
+                        log("      [SUCCESS] Model loaded.")
                         local count_status, count = pcall(function() return model:getmeshcount() end)
                         if count_status then
                             log("      Mesh Count: " .. tostring(count))
@@ -118,14 +117,12 @@ local function run_diagnostic_scan(path)
             for _, detail in ipairs(detail_levels) do
                 log("    Params: DetailLevel=" .. detail)
 
-                local t0 = os.clock()
                 local load_status, model = pcall(function()
                     return importer:loadmodel(path, detail)
                 end)
-                local t1 = os.clock()
 
                 if load_status and model then
-                    log("      [SUCCESS] Model loaded in " .. string.format("%.4f", t1-t0) .. "s")
+                    log("      [SUCCESS] Model loaded.")
                     local count_status, count = pcall(function() return model:getmeshcount() end)
                     if count_status then
                         log("      Mesh Count: " .. tostring(count))
