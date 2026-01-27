@@ -113,7 +113,15 @@ if ok_load and res_load then
 
     if mesh then
         -- Add to Tray
-        local ok_add, err_add = pcall(function() system:addmesh(mesh) end)
+        local ok_add, err_add = pcall(function()
+            local tray = system:getcurrenttray()
+            if tray then
+                tray.root:addmesh(mesh)
+            else
+                error("No active tray found.")
+            end
+        end)
+
         if ok_add then
             log("Success: Mesh added to tray.")
             pcall(function() system:inputdlg("Import Successful!", "Success", "OK") end)
