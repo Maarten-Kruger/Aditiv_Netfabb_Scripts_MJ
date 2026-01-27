@@ -59,7 +59,7 @@ log("--- Starting Simple STEP Import Script ---")
 log("Working path for logs: " .. path_variable)
 
 -- Hardcoded STEP file path
-local step_file_path = "C:\\Temp\\example.step"
+local step_file_path = "C:\\Users\\Maarten\\OneDrive\\Desktop\\1111PAT Mi v7.3 Lid step.step"
 log("Target STEP File Path: " .. step_file_path)
 
 -- Create CAD Importer
