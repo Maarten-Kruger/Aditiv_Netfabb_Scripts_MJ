@@ -113,7 +113,20 @@ if ok_load and res_load then
 
     if mesh then
         -- Add to Tray
-        local ok_add, err_add = pcall(function() system:addmesh(mesh) end)
+        local ok_add, err_add = pcall(function()
+            -- Attempt to get the first tray using netfabbtrayhandler
+            local tray = nil
+            if netfabbtrayhandler then
+                 tray = netfabbtrayhandler:gettray(0)
+            end
+
+            if tray then
+                tray.root:addmesh(mesh)
+            else
+                error("No active tray found (netfabbtrayhandler:gettray(0) returned nil).")
+            end
+        end)
+
         if ok_add then
             log("Success: Mesh added to tray.")
             pcall(function() system:inputdlg("Import Successful!", "Success", "OK") end)
