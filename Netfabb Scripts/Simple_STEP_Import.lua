@@ -114,11 +114,16 @@ if ok_load and res_load then
     if mesh then
         -- Add to Tray
         local ok_add, err_add = pcall(function()
-            local tray = system:getcurrenttray()
+            -- Attempt to get the first tray using netfabbtrayhandler
+            local tray = nil
+            if netfabbtrayhandler then
+                 tray = netfabbtrayhandler:gettray(0)
+            end
+
             if tray then
                 tray.root:addmesh(mesh)
             else
-                error("No active tray found.")
+                error("No active tray found (netfabbtrayhandler:gettray(0) returned nil).")
             end
         end)
 
