@@ -208,6 +208,9 @@ local function read_file_safe(path)
              log("system:loadtextfile returned type: " .. t)
              if t == "string" then
                  return res
+             elseif t == "table" then
+                 log("Converting table from loadtextfile to string (concatenating lines).")
+                 return table.concat(res, "\n")
              elseif t == "userdata" then
                  log("Converting userdata from loadtextfile to string.")
                  return tostring(res)
