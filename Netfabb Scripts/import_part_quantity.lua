@@ -201,7 +201,26 @@ local function read_file_safe(path)
 
     -- 2. Try system:loadtextfile (hypothetical, but common in automation)
     local ok, res = pcall(function() return system:loadtextfile(path) end)
-    if ok and res then return res end
+    if ok then
+         if res then
+             -- Ensure it is a string
+             local t = type(res)
+             log("system:loadtextfile returned type: " .. t)
+             if t == "string" then
+                 return res
+             elseif t == "userdata" then
+                 log("Converting userdata from loadtextfile to string.")
+                 return tostring(res)
+             else
+                 log("Unexpected type from loadtextfile.")
+                 return tostring(res)
+             end
+         else
+             log("system:loadtextfile returned nil.")
+         end
+    else
+         log("system:loadtextfile failed or missing.")
+    end
 
     return nil
 end
@@ -245,12 +264,13 @@ local success_main, err_main = pcall(function()
         end
     end
 
+    -- Force content to string to avoid Userdata errors with string methods
+    content = tostring(content)
+
     -- Parse CSV lines
     local lines = {}
-    -- Handle both \n and \r\n, and potential simple inputdlg flattening
-    -- If inputdlg returns one line with no newlines, we might fail if user doesn't use standard delimiters.
-    -- Assuming standard paste preserves newlines or user uses single line CSV.
-    for s in content:gmatch("[^\r\n]+") do
+    -- Handle both \n and \r\n, using string.gmatch for safety
+    for s in string.gmatch(content, "[^\r\n]+") do
         table.insert(lines, s)
     end
 
@@ -260,7 +280,7 @@ local success_main, err_main = pcall(function()
     local header = lines[1]
     local cols = {}
     local idx = 1
-    for w in header:gmatch("([^,]+)") do
+    for w in string.gmatch(header, "([^,]+)") do
         cols[string.lower(w:match("^%s*(.-)%s*$"))] = idx -- trim whitespace
         idx = idx + 1
     end
@@ -277,9 +297,9 @@ local success_main, err_main = pcall(function()
     for i = 2, #lines do
         local line = lines[i]
         if line and line ~= "" then
-            -- Simple comma splitting (Note: doesn't handle quoted commas)
+            -- Simple comma splitting
             local vals = {}
-            for w in line:gmatch("([^,]+)") do
+            for w in string.gmatch(line, "([^,]+)") do
                 table.insert(vals, w:match("^%s*(.-)%s*$"))
             end
 
@@ -301,14 +321,10 @@ local success_main, err_main = pcall(function()
                 local file_path = subfolder .. p_name
 
                 -- Check if file exists (try to open)
-                -- Since we can't read, we can't check 'io.open' for existence efficiently if it's broken.
-                -- Use system:fileexists if available?
-                -- Example 13 uses: if system:fileexists(outname) then ...
                 local file_exists = false
                 if system.fileexists then
                     file_exists = system:fileexists(file_path)
                 else
-                    -- Blind try
                     file_exists = true
                 end
 
