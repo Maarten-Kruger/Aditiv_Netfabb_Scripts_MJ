@@ -467,9 +467,8 @@ local success_main, err_main = pcall(function()
                                 -- Update progress every 5 items to keep UI alive
                                 if k % 5 == 0 then
                                     update_progress(pct, "Processing Row " .. (i - 1) .. "/" .. total_rows .. " (Copy " .. k .. "/" .. qty .. ")")
-                                    if system and system.processmessages then
-                                        pcall(function() system:processmessages() end)
-                                    end
+                                    -- Note: update_progress calls system:setprogresscancancel, which typically handles message pumping.
+                                    -- Explicitly calling system:processmessages() caused crashes on some systems due to property access on strict userdata, so it is removed.
                                 end
 
                                 for m_idx, mesh in ipairs(meshes_to_add) do
