@@ -33,6 +33,18 @@ function _G.manual_csv_cancel()
     end
 end
 
+function _G.manual_csv_std()
+    -- Close custom dialog (conceptually switching)
+    -- We will call system:inputdlg and store the result
+    local ok, res = pcall(function() return system:inputdlg("Paste CSV Content (Multiline supported):", "Standard Input", "") end)
+    if ok and res then
+        _G.manual_csv_content = res
+        if _G.manual_csv_dialog then
+            _G.manual_csv_dialog:close(true)
+        end
+    end
+end
+
 local function show_manual_csv_dialog()
     local app = application
     if not app or not app.createdialog then
@@ -43,24 +55,24 @@ local function show_manual_csv_dialog()
 
     local dialog = app:createdialog()
     dialog.caption = "Manual CSV Import"
-    dialog.width = 800 -- Make it large
-    -- dialog.height = 600 -- Height might not be settable or auto-adjusted
+    dialog.width = 800
     dialog.translatecaption = false
     _G.manual_csv_dialog = dialog
     _G.manual_csv_content = nil
 
     local label = dialog:addlabel()
-    label.caption = "Script cannot read files automatically. Please paste CSV content here:"
+    label.caption = "Paste CSV content below. If pasting truncates text, click 'Use Standard Input'."
     label.translate = false
 
     local edit = dialog:addedit()
-    edit.caption = "CSV Content:" -- This acts as label for the edit usually
+    edit.caption = "CSV Content:"
     edit.captionwidth = 100
     edit.text = ""
     edit.translate = false
+    -- Try to enable multiline if supported (undocumented property guess)
+    pcall(function() edit.multiline = true end)
     _G.manual_csv_edit = edit
 
-    -- Add a spacer/splitter
     local splitter = dialog:addsplitter()
     splitter:settoleft()
 
@@ -68,6 +80,11 @@ local function show_manual_csv_dialog()
     btn_ok.caption = "OK"
     btn_ok.translate = false
     btn_ok.onclick = "manual_csv_ok"
+
+    local btn_std = splitter:addbutton()
+    btn_std.caption = "Use Standard Input"
+    btn_std.translate = false
+    btn_std.onclick = "manual_csv_std"
 
     splitter:settoright()
 
