@@ -210,16 +210,32 @@ end
 log("Created single workspace for import.")
 
 
+local cached_importer_index = nil
+
 -- Helper: Load CAD File and return list of meshes
 local function get_cad_meshes(filename)
     local importer = nil
-    -- Iterating indices 0-10 to find a working importer kernel
-    for i = 0, 10 do
-        local ok, res = pcall(function() return system:createcadimport(i) end)
+
+    -- Use cached index if available
+    if cached_importer_index then
+        local ok, res = pcall(function() return system:createcadimport(cached_importer_index) end)
         if ok and res then
-            importer = res
-            -- log("Created CAD importer with index: " .. i)
-            break
+             importer = res
+        else
+             cached_importer_index = nil -- Reset if failed
+        end
+    end
+
+    if not importer then
+        -- Iterating indices 0-10 to find a working importer kernel
+        for i = 0, 10 do
+            local ok, res = pcall(function() return system:createcadimport(i) end)
+            if ok and res then
+                importer = res
+                cached_importer_index = i
+                log("Found working CAD importer kernel at index: " .. i)
+                break
+            end
         end
     end
 
@@ -445,7 +461,16 @@ local success_main, err_main = pcall(function()
                         if #meshes_to_add > 0 then
                             log("    Adding " .. qty .. " copies of " .. #meshes_to_add .. " meshes.")
 
+                            local mesh_translations = {}
+
                             for k = 1, qty do
+                                -- Update progress every 5 items to keep UI alive
+                                if k % 5 == 0 then
+                                    update_progress(pct, "Processing Row " .. (i - 1) .. "/" .. total_rows .. " (Copy " .. k .. "/" .. qty .. ")")
+                                    -- Note: update_progress calls system:setprogresscancancel, which typically handles message pumping.
+                                    -- Explicitly calling system:processmessages() caused crashes on some systems due to property access on strict userdata, so it is removed.
+                                end
+
                                 for m_idx, mesh in ipairs(meshes_to_add) do
                                     local tm = currentTray.root:addmesh(mesh)
                                     if tm then
@@ -463,18 +488,35 @@ local success_main, err_main = pcall(function()
                                          end
 
                                          -- Center (Note: All parts will pile up at center, as requested by "import to one workspace")
-                                         local mx = currentTray.machinesize_x or 100
-                                         local my = currentTray.machinesize_y or 100
+                                         -- Optimization: Calculate translation only for the first copy, reuse for others
 
-                                         local outbox = tm.outbox
-                                         if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
-                                         if outbox then
-                                             local cx = (outbox.minx + outbox.maxx) / 2.0
-                                             local cy = (outbox.miny + outbox.maxy) / 2.0
-                                             local min_z = outbox.minz
-                                             local tx = (mx / 2.0) - cx
-                                             local ty = (my / 2.0) - cy
-                                             local tz = -min_z
+                                         local tx, ty, tz = 0, 0, 0
+                                         local trans_cached = mesh_translations[m_idx]
+
+                                         if trans_cached then
+                                             tx, ty, tz = trans_cached.x, trans_cached.y, trans_cached.z
+                                         else
+                                             -- Calculate from scratch
+                                             local mx = currentTray.machinesize_x or 100
+                                             local my = currentTray.machinesize_y or 100
+
+                                             local outbox = tm.outbox
+                                             if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
+                                             if outbox then
+                                                 local cx = (outbox.minx + outbox.maxx) / 2.0
+                                                 local cy = (outbox.miny + outbox.maxy) / 2.0
+                                                 local min_z = outbox.minz
+                                                 tx = (mx / 2.0) - cx
+                                                 ty = (my / 2.0) - cy
+                                                 tz = -min_z
+
+                                                 -- Cache it
+                                                 mesh_translations[m_idx] = {x=tx, y=ty, z=tz}
+                                             end
+                                         end
+
+                                         -- Apply Translation
+                                         if tx ~= 0 or ty ~= 0 or tz ~= 0 then
                                              tm:translate(tx, ty, tz)
                                          end
                                     end
