@@ -33,18 +33,6 @@ function _G.manual_csv_cancel()
     end
 end
 
-function _G.manual_csv_std()
-    -- Close custom dialog (conceptually switching)
-    -- We will call system:inputdlg and store the result
-    local ok, res = pcall(function() return system:inputdlg("Paste CSV Content (Multiline supported):", "Standard Input", "") end)
-    if ok and res then
-        _G.manual_csv_content = res
-        if _G.manual_csv_dialog then
-            _G.manual_csv_dialog:close(true)
-        end
-    end
-end
-
 local function show_manual_csv_dialog()
     local app = application
     if not app or not app.createdialog then
@@ -61,7 +49,7 @@ local function show_manual_csv_dialog()
     _G.manual_csv_content = nil
 
     local label = dialog:addlabel()
-    label.caption = "Paste CSV content below. If pasting truncates text, click 'Use Standard Input'."
+    label.caption = "Paste CSV content below:"
     label.translate = false
 
     local edit = dialog:addedit()
@@ -69,7 +57,7 @@ local function show_manual_csv_dialog()
     edit.captionwidth = 100
     edit.text = ""
     edit.translate = false
-    -- Try to enable multiline if supported (undocumented property guess)
+    -- Try to enable multiline if supported
     pcall(function() edit.multiline = true end)
     _G.manual_csv_edit = edit
 
@@ -80,11 +68,6 @@ local function show_manual_csv_dialog()
     btn_ok.caption = "OK"
     btn_ok.translate = false
     btn_ok.onclick = "manual_csv_ok"
-
-    local btn_std = splitter:addbutton()
-    btn_std.caption = "Use Standard Input"
-    btn_std.translate = false
-    btn_std.onclick = "manual_csv_std"
 
     splitter:settoright()
 
@@ -301,8 +284,26 @@ local function read_file_safe(path)
     return nil
 end
 
+-- Progress Bar Helper
+local function update_progress(percent, message)
+    if system and system.setprogresscancancel then
+        system:setprogresscancancel(percent, message, false)
+        if system:progresscancelled() then
+            log("Script cancelled by user via progress dialog.")
+            error("Cancelled by user")
+        end
+    end
+end
+
 -- 5. Main Execution: Find CSV and Process
 local success_main, err_main = pcall(function()
+
+    -- Initialize Progress
+    if system and system.showprogressdlgcancancel then
+        system:showprogressdlgcancancel(true)
+    end
+    update_progress(0, "Finding CSV File...")
+
     -- Find CSV
     local filelist = system:getallfilesindirectory(import_path)
     local csv_path = nil
@@ -330,7 +331,14 @@ local success_main, err_main = pcall(function()
     if not content then
         -- Last Resort: Ask user to paste content using custom dialog
         log("Could not read file via script. Requesting manual input.")
+        -- Hide progress to show dialog
+        if system.hideprogressdlgcancancel then system:hideprogressdlgcancancel() end
+
         content = show_manual_csv_dialog()
+
+        -- Restore progress
+        if system and system.showprogressdlgcancancel then system:showprogressdlgcancancel(true) end
+        update_progress(0, "Parsing content...")
 
         if content and content ~= "" then
             log("User provided CSV content manually.")
@@ -373,8 +381,14 @@ local success_main, err_main = pcall(function()
     end
 
     -- Process Rows
+    local total_rows = #lines - 1
     for i = 2, #lines do
         local line = lines[i]
+
+        -- Progress Update
+        local pct = math.floor(((i - 1) / total_rows) * 100)
+        update_progress(pct, "Processing Row " .. (i - 1) .. "/" .. total_rows)
+
         if line and line ~= "" then
             -- Simple comma splitting
             local vals = {}
@@ -480,6 +494,11 @@ local success_main, err_main = pcall(function()
     end
 
 end)
+
+-- Clean up Progress Bar
+if system and system.hideprogressdlgcancancel then
+    system:hideprogressdlgcancancel()
+end
 
 if not success_main then
     log("Critical Error: " .. tostring(err_main))
