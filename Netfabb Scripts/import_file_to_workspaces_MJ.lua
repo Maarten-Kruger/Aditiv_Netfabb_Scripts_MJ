@@ -1,6 +1,11 @@
 -- Batch Load Files to Separate Workspaces (Trays)
 -- Modified by Jules: Added Detailed Logging and Error Popups
 
+-- Default STEP Import Parameters (hardcoded defaults)
+local DEFAULT_STEP_SURFACE_DEVIATION = 0.1
+local DEFAULT_STEP_ANGLE_TOLERANCE = 20
+local DEFAULT_STEP_MAX_EDGE_LENGTH = 5
+
 local function log(msg)
     if system and system.log then
         system:log(msg)
@@ -45,23 +50,89 @@ local function is_cad_extension(ext)
 end
 
 -- Helper: Load CAD File
-local function loadcadfile(filename, root)
+local function loadcadfile(filename, root, ext)
+    local p1, p2, p3 = 0.1, 20, 20 -- Generic defaults for non-STEP CAD
+
+    -- If STEP, prompt user for specific parameters
+    if ext == "step" or ext == "stp" then
+         p1, p2, p3 = DEFAULT_STEP_SURFACE_DEVIATION, DEFAULT_STEP_ANGLE_TOLERANCE, DEFAULT_STEP_MAX_EDGE_LENGTH
+
+         -- Construct default string
+         local default_str = p1 .. ", " .. p2 .. ", " .. p3
+         local msg = "Enter STEP Import Parameters:\n(Surface Deviation, Angle Tolerance, Max Edge Length)"
+         local title = "STEP Import Settings"
+
+         -- Popup to get user values
+         local ok_dlg, input_str = pcall(function() return system:inputdlg(msg, title, default_str) end)
+
+         if ok_dlg and input_str and input_str ~= "" then
+             -- Parse CSV
+             local t = {}
+             for val in string.gmatch(input_str, "([^,]+)") do
+                 local num = tonumber(val)
+                 if num then
+                     table.insert(t, num)
+                 end
+             end
+
+             -- Update params if we got at least 3 values
+             if #t >= 3 then
+                 p1, p2, p3 = t[1], t[2], t[3]
+             else
+                 log("Invalid input format for STEP parameters. Using defaults.")
+                 pcall(function() system:inputdlg("Invalid input format. Using defaults.", "Warning", "OK") end)
+             end
+         end
+    end
+
     -- Use pcall for safety as createcadimport might fail or not exist
     local ok, err = pcall(function()
         if system.createcadimport then
-            local importer = system:createcadimport(0)
-            -- Parameters from Script6: 0.1 (tessellation?), 20, 20
-            local model = importer:loadmodel(filename, 0.1, 20, 20)
-            if model then
-                local ANumberOfModels = model.entitycount
-                for i = 0, ANumberOfModels - 1 do
-                    local mesh = model:createsinglemesh(i)
-                    if mesh then
-                        root:addmesh(mesh)
+            local importer = nil
+            -- Iterating indices 0-10 to find a working importer kernel (Robust Logic)
+            for i = 0, 10 do
+                local ok_imp, res_imp = pcall(function() return system:createcadimport(i) end)
+                if ok_imp and res_imp then
+                    importer = res_imp
+                    -- log("Created CAD importer with index: " .. i) -- Optional debug log
+                    break
+                end
+            end
+
+            if importer then
+                log("Importing CAD with params: " .. p1 .. ", " .. p2 .. ", " .. p3)
+                local model = importer:loadmodel(filename, p1, p2, p3)
+                if model then
+                    local ANumberOfModels = model.entitycount
+
+                    if ANumberOfModels == 0 then
+                        -- Fallback heuristic for some STEP files (try index 1 then 0)
+                        log("Entity count is 0. Attempting fallback mesh extraction (Index 1 then 0).")
+                        local m = nil
+                        pcall(function() m = model:createsinglemesh(1) end)
+                        if not m then
+                             pcall(function() m = model:createsinglemesh(0) end)
+                        end
+
+                        if m then
+                             root:addmesh(m)
+                             log("  Extracted mesh using fallback indices.")
+                        else
+                             log("  No meshes found in CAD model (fallback failed).")
+                        end
+                    else
+                        for i = 0, ANumberOfModels - 1 do
+                            local mesh = model:createsinglemesh(i)
+                            if mesh then
+                                root:addmesh(mesh)
+                            end
+                        end
                     end
+                else
+                    log("CAD Import: loadmodel returned nil for " .. filename)
                 end
             else
-                log("CAD Import: loadmodel returned nil for " .. filename)
+                log("CAD import failed: Could not create importer (tried indices 0-10).")
             end
         else
             log("CAD import not supported (system:createcadimport missing).")
@@ -247,7 +318,7 @@ local success_loop, err_loop = pcall(function()
                         local initial_count = newTray.root.meshcount
 
                         -- Import CAD
-                        loadcadfile(full_path, newTray.root)
+                        loadcadfile(full_path, newTray.root, lower_ext) -- Passed lower_ext
 
                         local final_count = newTray.root.meshcount
                         local added_count = final_count - initial_count
