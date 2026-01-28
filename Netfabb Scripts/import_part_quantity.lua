@@ -206,11 +206,38 @@ local function read_file_safe(path)
              -- Ensure it is a string
              local t = type(res)
              log("system:loadtextfile returned type: " .. t)
+
              if t == "string" then
                  return res
              elseif t == "table" then
-                 log("Converting table from loadtextfile to string (concatenating lines).")
-                 return table.concat(res, "\n")
+                 log("Converting table from loadtextfile to string.")
+
+                 -- Collect and Sort Numeric Keys (0-based or 1-based)
+                 local keys = {}
+                 for k, v in pairs(res) do
+                     if type(k) == "number" then
+                         table.insert(keys, k)
+                     end
+                 end
+                 table.sort(keys)
+
+                 log("Table has " .. #keys .. " numeric keys. Range: " .. (keys[1] or "nil") .. " to " .. (keys[#keys] or "nil"))
+
+                 local parts = {}
+                 for _, k in ipairs(keys) do
+                     table.insert(parts, tostring(res[k]))
+                 end
+
+                 -- If no numeric keys, dump everything (fallback)
+                 if #parts == 0 then
+                     log("No numeric keys found. Dumping all values.")
+                     for _, v in pairs(res) do
+                         table.insert(parts, tostring(v))
+                     end
+                 end
+
+                 return table.concat(parts, "\n")
+
              elseif t == "userdata" then
                  log("Converting userdata from loadtextfile to string.")
                  return tostring(res)
@@ -277,7 +304,11 @@ local success_main, err_main = pcall(function()
         table.insert(lines, s)
     end
 
-    if #lines < 2 then error("CSV file is empty or missing header.") end
+    if #lines < 2 then
+        log("Parsed Lines Count: " .. #lines)
+        if #lines > 0 then log("Line 1: " .. lines[1]) end
+        error("CSV file is empty or missing header.")
+    end
 
     -- Parse Header
     local header = lines[1]
