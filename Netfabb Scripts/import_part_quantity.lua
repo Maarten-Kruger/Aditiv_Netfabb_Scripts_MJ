@@ -12,6 +12,77 @@ local function log(msg)
     end
 end
 
+-- Global vars for custom dialog callbacks
+_G.manual_csv_dialog = nil
+_G.manual_csv_edit = nil
+_G.manual_csv_content = nil
+
+function _G.manual_csv_ok()
+    if _G.manual_csv_edit then
+        _G.manual_csv_content = _G.manual_csv_edit.text
+    end
+    if _G.manual_csv_dialog then
+        _G.manual_csv_dialog:close(true)
+    end
+end
+
+function _G.manual_csv_cancel()
+    _G.manual_csv_content = nil
+    if _G.manual_csv_dialog then
+        _G.manual_csv_dialog:close(false)
+    end
+end
+
+local function show_manual_csv_dialog()
+    local app = application
+    if not app or not app.createdialog then
+        -- Fallback if application object missing
+        local ok, res = pcall(function() return system:inputdlg("Paste CSV Content:", "Manual Import", "") end)
+        return ok and res
+    end
+
+    local dialog = app:createdialog()
+    dialog.caption = "Manual CSV Import"
+    dialog.width = 800 -- Make it large
+    -- dialog.height = 600 -- Height might not be settable or auto-adjusted
+    dialog.translatecaption = false
+    _G.manual_csv_dialog = dialog
+    _G.manual_csv_content = nil
+
+    local label = dialog:addlabel()
+    label.caption = "Script cannot read files automatically. Please paste CSV content here:"
+    label.translate = false
+
+    local edit = dialog:addedit()
+    edit.caption = "CSV Content:" -- This acts as label for the edit usually
+    edit.captionwidth = 100
+    edit.text = ""
+    edit.translate = false
+    _G.manual_csv_edit = edit
+
+    -- Add a spacer/splitter
+    local splitter = dialog:addsplitter()
+    splitter:settoleft()
+
+    local btn_ok = splitter:addbutton()
+    btn_ok.caption = "OK"
+    btn_ok.translate = false
+    btn_ok.onclick = "manual_csv_ok"
+
+    splitter:settoright()
+
+    local btn_cancel = splitter:addbutton()
+    btn_cancel.caption = "Cancel"
+    btn_cancel.translate = false
+    btn_cancel.onclick = "manual_csv_cancel"
+
+    if dialog:show() then
+        return _G.manual_csv_content
+    end
+    return nil
+end
+
+
 -- Helper: Check CAD Extension
 local function is_cad_extension(ext)
     local ext = string.lower(ext)
@@ -129,6 +200,16 @@ if workspaceID == "" then
 end
 log("Found Workspace ID: " .. workspaceID)
 
+-- Create Single Workspace (Tray) for All Parts
+local currentTray = trayHandler:addworkspace(workspaceID)
+if not currentTray then
+    log("Critical Error: Failed to create initial workspace.")
+    pcall(function() system:inputdlg("Failed to create workspace.", "Error", "Error") end)
+    return
+end
+log("Created single workspace for import.")
+
+
 -- Helper: Load CAD File and return list of meshes
 local function get_cad_meshes(filename)
     local importer = nil
@@ -199,9 +280,7 @@ local function read_file_safe(path)
         log("io library not available.")
     end
 
-    -- Removed system:loadtextfile due to unreliability/opaque return types.
-    -- Falling back to manual input.
-
+    -- Manual Fallback
     return nil
 end
 
@@ -232,12 +311,11 @@ local success_main, err_main = pcall(function()
     local content = read_file_safe(csv_path)
 
     if not content then
-        -- Last Resort: Ask user to paste content
+        -- Last Resort: Ask user to paste content using custom dialog
         log("Could not read file via script. Requesting manual input.")
-        local msg = "Script cannot read files automatically (IO restricted). Please Open the CSV, Copy All text, and Paste it here:"
-        local ok_in, input_in = pcall(function() return system:inputdlg(msg, "Manual CSV Import", "") end)
-        if ok_in and input_in and input_in ~= "" then
-            content = input_in
+        content = show_manual_csv_dialog()
+
+        if content and content ~= "" then
             log("User provided CSV content manually.")
         else
             error("Could not read CSV file and no manual input provided.")
@@ -315,9 +393,8 @@ local success_main, err_main = pcall(function()
                 if file_exists then
                     log("  Processing File: " .. file_path)
 
-                    -- Create Workspace
-                    local newTray = trayHandler:addworkspace(workspaceID)
-                    if newTray then
+                    -- Use the single global 'currentTray'
+                    if currentTray then
                         -- Import Logic
                         local ext = file_path:match("%.([^%.]+)$")
                         local lower_ext = string.lower(ext or "")
@@ -339,7 +416,7 @@ local success_main, err_main = pcall(function()
 
                             for k = 1, qty do
                                 for m_idx, mesh in ipairs(meshes_to_add) do
-                                    local tm = newTray.root:addmesh(mesh)
+                                    local tm = currentTray.root:addmesh(mesh)
                                     if tm then
                                          -- Construct Name
                                          local base_name = p_name
@@ -354,9 +431,9 @@ local success_main, err_main = pcall(function()
                                              tm.name = base_name .. " (" .. k .. ")"
                                          end
 
-                                         -- Center
-                                         local mx = newTray.machinesize_x or 100
-                                         local my = newTray.machinesize_y or 100
+                                         -- Center (Note: All parts will pile up at center, as requested by "import to one workspace")
+                                         local mx = currentTray.machinesize_x or 100
+                                         local my = currentTray.machinesize_y or 100
 
                                          local outbox = tm.outbox
                                          if not outbox then pcall(function() tm:calcoutbox() end); outbox = tm.outbox end
@@ -376,7 +453,7 @@ local success_main, err_main = pcall(function()
                             log("  Failed to load meshes from file (0 meshes returned or import failed): " .. file_path)
                         end
                     else
-                        log("  Failed to create workspace.")
+                        log("  Failed to access workspace.")
                     end
                 else
                     log("  File not found (system:fileexists returned false): " .. file_path)
