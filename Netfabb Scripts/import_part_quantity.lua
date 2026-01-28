@@ -2,9 +2,9 @@
 -- Based on Netfabb Scripts/import_file_to_workspaces_MJ.lua and Example Code/Simple_STEP_Import.lua
 
 -- Defaults for Import Settings
-local default_deviation = 0.05
+local default_deviation = 0.1
 local default_angle_tol = 20
-local default_edge_len = 100
+local default_edge_len = 5
 
 local function log(msg)
     if system and system.log then
@@ -92,15 +92,22 @@ if not trayHandler then
     return
 end
 
--- 2. Prompt for Import Settings
-local ok_dev, input_dev = pcall(function() return system:inputdlg("Enter Maximum Surface Deviation (mm):", "Import Settings", tostring(default_deviation)) end)
-if ok_dev and input_dev then default_deviation = tonumber(input_dev) or default_deviation end
+-- 2. Prompt for Import Settings (Combined Popup)
+local settings_default_str = string.format("%s, %s, %s", default_deviation, default_angle_tol, default_edge_len)
+local ok_set, input_set = pcall(function()
+    return system:inputdlg("Enter Deviation (mm), Angle (deg), Edge Length (mm):", "Import Settings", settings_default_str)
+end)
 
-local ok_ang, input_ang = pcall(function() return system:inputdlg("Enter Angle Tolerance (deg):", "Import Settings", tostring(default_angle_tol)) end)
-if ok_ang and input_ang then default_angle_tol = tonumber(input_ang) or default_angle_tol end
+if ok_set and input_set and input_set ~= "" then
+    local parts = {}
+    for w in string.gmatch(input_set, "([^,]+)") do
+        table.insert(parts, tonumber(w))
+    end
 
-local ok_edge, input_edge = pcall(function() return system:inputdlg("Enter Maximum Edge Length (mm):", "Import Settings", tostring(default_edge_len)) end)
-if ok_edge and input_edge then default_edge_len = tonumber(input_edge) or default_edge_len end
+    if #parts >= 1 and parts[1] then default_deviation = parts[1] end
+    if #parts >= 2 and parts[2] then default_angle_tol = parts[2] end
+    if #parts >= 3 and parts[3] then default_edge_len = parts[3] end
+end
 
 log("Import Settings: Deviation=" .. default_deviation .. ", Angle=" .. default_angle_tol .. ", EdgeLen=" .. default_edge_len)
 
@@ -176,6 +183,29 @@ local function loadfile(filename, ext)
     return nil
 end
 
+-- Helper: Read File Content (Safe Fallback)
+local function read_file_safe(path)
+    -- 1. Try io.open
+    if _G.io and _G.io.open then
+        local f, err = io.open(path, "r")
+        if f then
+            local content = f:read("*all")
+            f:close()
+            return content
+        else
+            log("io.open failed: " .. tostring(err))
+        end
+    else
+        log("io library not available.")
+    end
+
+    -- 2. Try system:loadtextfile (hypothetical, but common in automation)
+    local ok, res = pcall(function() return system:loadtextfile(path) end)
+    if ok and res then return res end
+
+    return nil
+end
+
 -- 5. Main Execution: Find CSV and Process
 local success_main, err_main = pcall(function()
     -- Find CSV
@@ -200,13 +230,26 @@ local success_main, err_main = pcall(function()
     log("Found CSV: " .. csv_path)
 
     -- Read CSV
-    local file = io.open(csv_path, "r")
-    if not file then error("Could not open CSV file.") end
-    local content = file:read("*all")
-    file:close()
+    local content = read_file_safe(csv_path)
+
+    if not content then
+        -- Last Resort: Ask user to paste content
+        log("Could not read file via script. Requesting manual input.")
+        local msg = "Script cannot read files (IO restricted). Please Open the CSV, Copy All text, and Paste it here:"
+        local ok_in, input_in = pcall(function() return system:inputdlg(msg, "Manual CSV Import", "") end)
+        if ok_in and input_in and input_in ~= "" then
+            content = input_in
+            log("User provided CSV content manually.")
+        else
+            error("Could not read CSV file and no manual input provided.")
+        end
+    end
 
     -- Parse CSV lines
     local lines = {}
+    -- Handle both \n and \r\n, and potential simple inputdlg flattening
+    -- If inputdlg returns one line with no newlines, we might fail if user doesn't use standard delimiters.
+    -- Assuming standard paste preserves newlines or user uses single line CSV.
     for s in content:gmatch("[^\r\n]+") do
         table.insert(lines, s)
     end
@@ -258,9 +301,18 @@ local success_main, err_main = pcall(function()
                 local file_path = subfolder .. p_name
 
                 -- Check if file exists (try to open)
-                local fcheck = io.open(file_path, "r")
-                if fcheck then
-                    fcheck:close()
+                -- Since we can't read, we can't check 'io.open' for existence efficiently if it's broken.
+                -- Use system:fileexists if available?
+                -- Example 13 uses: if system:fileexists(outname) then ...
+                local file_exists = false
+                if system.fileexists then
+                    file_exists = system:fileexists(file_path)
+                else
+                    -- Blind try
+                    file_exists = true
+                end
+
+                if file_exists then
                     log("  Processing File: " .. file_path)
 
                     -- Create Workspace
@@ -296,25 +348,13 @@ local success_main, err_main = pcall(function()
                                              base_name = base_name .. "_m" .. m_idx
                                          end
 
-                                         -- If multiple copies, append copy index (if k > 1)
-                                         -- OR let Netfabb handle it.
-                                         -- User requested: "OR-00600-1" -> "OR-00600" for folder, but didn't specify strict naming in tray.
-                                         -- Let's stick to base name and let Netfabb handle collisions or add basic suffix.
-
                                          if k == 1 then
                                              tm.name = base_name
                                          else
                                              tm.name = base_name .. " (" .. k .. ")"
                                          end
 
-                                         -- Center the first copy?
-                                         -- Original script centered parts.
-                                         -- If we have multiple copies, they will all stack on 0,0,0 or import coordinates.
-                                         -- We might want to just leave them (Packer will arrange them later usually).
-                                         -- But the original script `import_file_to_workspaces_MJ.lua` centered the part.
-                                         -- "Manual Centering Logic".
-
-                                         -- Let's center at least the first one, or all of them (stacking is fine for packing).
+                                         -- Center
                                          local mx = newTray.machinesize_x or 100
                                          local my = newTray.machinesize_y or 100
 
@@ -333,13 +373,13 @@ local success_main, err_main = pcall(function()
                                 end
                             end
                         else
-                            log("  Failed to load meshes from file (0 meshes returned): " .. file_path)
+                            log("  Failed to load meshes from file (0 meshes returned or import failed): " .. file_path)
                         end
                     else
                         log("  Failed to create workspace.")
                     end
                 else
-                    log("  File not found: " .. file_path)
+                    log("  File not found (system:fileexists returned false): " .. file_path)
                 end
             end
         end
