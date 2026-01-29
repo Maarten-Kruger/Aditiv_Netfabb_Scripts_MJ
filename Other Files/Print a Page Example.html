@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A4 Print Example</title>
+    <style>
+        /* --- 1. SCREEN STYLES (What you see on the monitor) --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f0f0; /* Grey background on screen */
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+        .page-content {
+    background-color: white;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm;
+    
+    /* ADD THIS LINE TO FIX THE CUT-OFF */
+    box-sizing: border-box; 
+    
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+
+        .no-print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+
+        /* --- 2. PRINT STYLES (Applied only when printing) --- */
+        @media print {
+            /* Set the page size to A4 and remove default browser margins */
+            @page {
+                size: A4;
+                margin: 0; 
+            }
+
+            body {
+                background-color: white; /* Save ink/toner */
+                margin: 0;
+                padding: 0;
+                display: block; /* Reset flexbox layout */
+            }
+
+            .page-content {
+                width: 100%;
+                box-shadow: none; /* No shadows on paper */
+                padding: 20mm;   /* Physical margins on the paper */
+                margin: 0;
+            }
+
+            /* HIDE elements that are useless on paper */
+            .no-print-button, .nav-bar, .footer-links {
+                display: none !important;
+            }
+
+            /* Ensure text is black for best contrast */
+            p, h1, h2, h3 {
+                color: black !important;
+            }
+
+            /* Prevent sections from being split across pages awkwardly */
+            .invoice-row, .important-section {
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <button class="no-print-button" onclick="window.print()">Print this Page</button>
+
+    <div class="page-content">
+        <h1>Monthly Report</h1>
+        <p><strong>Date:</strong> January 29, 2026</p>
+        <hr>
+        
+        <h2>Summary</h2>
+        <p>This document is formatted to look like a card on the screen, but fills an A4 page perfectly when printed.</p>
+        
+        <h3>Data Points</h3>
+        <ul>
+            <li>Item 1: Optimized for A4</li>
+            <li>Item 2: High contrast text</li>
+            <li>Item 3: Margins set to 20mm</li>
+        </ul>
+
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+
+        <div class="important-section" style="border: 1px solid black; padding: 10px; margin-top: 20px;">
+            <h4>Note on Page Breaks</h4>
+            <p>This box has the CSS property <code>break-inside: avoid</code>. If this box lands near the bottom of a page, the printer will push the whole box to the next page rather than cutting it in half.</p>
+        </div>
+    </div>
+
+</body>
+</html>
