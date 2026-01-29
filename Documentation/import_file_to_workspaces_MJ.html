@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import File to Workspaces Documentation</title>
+    <style>
+        /* --- 1. SCREEN STYLES --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+        .page-content {
+            background-color: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            box-sizing: border-box;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .no-print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        /* --- 2. PRINT STYLES --- */
+        @media print {
+            @page { size: A4; margin: 0; }
+            body { background-color: white; margin: 0; padding: 0; display: block; }
+            .page-content { width: 100%; box-shadow: none; padding: 20mm; margin: 0; }
+            .no-print-button { display: none !important; }
+            p, h1, h2, h3 { color: black !important; }
+            .section { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+    <button class="no-print-button" onclick="window.print()">Print this Page</button>
+
+    <div class="page-content">
+        <h1>Import File to Workspaces Script (MJ)</h1>
+        <p><strong>Script Name:</strong> import_file_to_workspaces_MJ.lua</p>
+        <hr>
+
+        <div class="section">
+            <h2>Functionality</h2>
+            <p>This script automates the batch import of part files (both Mesh and CAD) from a directory. For each file, it creates a dedicated Workspace (tray) assigned to a specific machine, ensuring accurate build time and cost estimates.</p>
+            <p><strong>Logic Flow:</strong></p>
+            <ul>
+                <li><strong>Machine Selection:</strong> The user specifies a target machine (e.g., "Fuse 1"), and the script resolves the internal Workspace ID.</li>
+                <li><strong>Batch Processing:</strong> It iterates through every file in the selected directory.</li>
+                <li><strong>Importer Selection:</strong>
+                    <ul>
+                        <li><strong>Standard Meshes (STL, 3MF):</strong> Imported directly.</li>
+                        <li><strong>CAD Files (STEP):</strong> Imported using a specialized loop that tries 11 internal kernel indices (0-10) to find a compatible importer. It also supports custom tessellation parameters.</li>
+                    </ul>
+                </li>
+                <li><strong>Placement:</strong> Each part is placed in its own new workspace and automatically centered.</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>User Guide (Quick Start)</h2>
+            <ol>
+                <li>Prepare a folder containing all the files you wish to process.</li>
+                <li>Run the script <strong>import_file_to_workspaces_MJ</strong>.</li>
+                <li>Select the import folder when prompted.</li>
+                <li>Enter the exact <strong>Machine Name</strong> (as listed in "My Machines") when asked (default is "Formlabs Fuse 1").</li>
+                <li>If prompted for STEP parameters (Deviation, Angle, Edge Length), accept the defaults or customize them.</li>
+                <li>The script will generate a separate workspace for every file.</li>
+            </ol>
+        </div>
+
+        <div class="section" style="border: 1px solid black; padding: 10px; margin-top: 20px;">
+            <h3>Code Maintenance & Technical Notes</h3>
+            <p><strong>Workspace vs. Tray:</strong> The script explicitly uses <code>trayHandler:addworkspace(workspaceID)</code> instead of generic tray creation. This ensures that the specific machine configuration (and thus "No-Build" zones) is applied.</p>
+            <p><strong>STEP File Handling:</strong> Standard mesh loaders fail on STEP files. The script implements a robust <code>loadcadfile</code> function that attempts to create a CAD importer using indices 0 through 10. This loop is critical for compatibility across different Netfabb versions and kernel states.</p>
+            <p><strong>Centering Logic:</strong> Parts are centered based on the machine dimensions retrieved from the new workspace (`machinesize_x`, `machinesize_y`) relative to the part's bounding box.</p>
+        </div>
+    </div>
+
+</body>
+</html>
