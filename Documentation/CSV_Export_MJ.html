@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Export Documentation</title>
+    <style>
+        /* --- 1. SCREEN STYLES --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+        .page-content {
+            background-color: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            box-sizing: border-box;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .no-print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        /* --- 2. PRINT STYLES --- */
+        @media print {
+            @page { size: A4; margin: 0; }
+            body { background-color: white; margin: 0; padding: 0; display: block; }
+            .page-content { width: 100%; box-shadow: none; padding: 20mm; margin: 0; }
+            .no-print-button { display: none !important; }
+            p, h1, h2, h3 { color: black !important; }
+            .section { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+    <button class="no-print-button" onclick="window.print()">Print this Page</button>
+
+    <div class="page-content">
+        <h1>CSV Export Script (MJ)</h1>
+        <p><strong>Script Name:</strong> CSV_Export_MJ.lua</p>
+        <hr>
+
+        <div class="section">
+            <h2>Functionality</h2>
+            <p>This script automates the extraction of part metadata for project tracking. It cycles through all active trays and meshes to generate a report containing:</p>
+            <ul>
+                <li><strong>Tray Name</strong></li>
+                <li><strong>Mesh Name</strong></li>
+                <li><strong>Part Volume</strong> (Single and Total)</li>
+                <li><strong>Bounding Box Volume</strong></li>
+                <li><strong>Support Volume</strong> (Single and Total)</li>
+                <li><strong>Tray Build Time</strong> (Placeholder for manual entry)</li>
+            </ul>
+            <p><strong>Logic Flow:</strong> The script iterates through every mesh in every tray. It calculates volumes and dimensions, filters out duplicate parts (names containing "dup"), and compiles the data into a CSV file. If the standard file write operation fails, it attempts to use the system log as a fallback.</p>
+        </div>
+
+        <div class="section">
+            <h2>User Guide (Quick Start)</h2>
+            <ol>
+                <li>Open the Netfabb project containing the parts you wish to export.</li>
+                <li>Run the script <strong>CSV_Export_MJ</strong>.</li>
+                <li>A dialog will appear asking for the <strong>Export Folder</strong>. Select the directory where you want the CSV file saved.</li>
+                <li>The script will process all trays. A "Success" popup will appear when finished.</li>
+                <li><strong>Important:</strong> Open the generated CSV file. The "Tray Build Time" column will show "nil". You must manually input the estimated build time from the machine's official speed review or print software.</li>
+            </ol>
+        </div>
+
+        <div class="section" style="border: 1px solid black; padding: 10px; margin-top: 20px;">
+            <h3>Code Maintenance & Technical Notes</h3>
+            <p><strong>Build Time Limitation:</strong> Lua scripts in this environment cannot access the internal JSON-based build time estimates (Reference: Autodesk Help GUID-5830CB69). The script intentionally outputs "nil" for this field to prompt manual entry.</p>
+            <p><strong>Duplicate Filtering:</strong> The script assumes that any mesh with "dup" (case-insensitive) in its name is a copy generated for arrangement and should be excluded from the unique part list. If naming conventions change, update the filtering logic in the loop.</p>
+            <p><strong>File Writing Fallback:</strong> The standard <code>io</code> library is often restricted. The script includes a fallback to <code>system:logtofile()</code>. If this fallback is triggered, the CSV may include timestamp prefixes on every line, which might need cleaning in Excel.</p>
+        </div>
+    </div>
+
+</body>
+</html>
