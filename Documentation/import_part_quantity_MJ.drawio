@@ -71,14 +71,17 @@
         <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_rows" target="file_check">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
+
+        <!-- Edge e8: Check Exists Yes -> Loop Qty -->
         <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="file_check" target="loop_qty">
           <mxGeometry relative="1" as="geometry" />
-           <mxText value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e8">
+        </mxCell>
+        <mxCell id="e8_label" value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e8">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
         <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_qty" target="add_mesh">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -90,6 +93,8 @@
             </Array>
           </mxGeometry>
         </mxCell>
+
+        <!-- Edge e11: Loop Qty Done -> Loop Rows -->
         <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_qty" target="loop_rows">
            <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -98,12 +103,14 @@
               <mxPoint x="420" y="630" />
             </Array>
           </mxGeometry>
-           <mxText value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e11">
+        </mxCell>
+        <mxCell id="e11_label" value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e11">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
+        <!-- Edge e12: Check Exists No -> Loop Rows -->
         <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="file_check" target="loop_rows">
            <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -111,12 +118,14 @@
               <mxPoint x="340" y="580" />
             </Array>
           </mxGeometry>
-           <mxText value="No" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e12">
+        </mxCell>
+        <mxCell id="e12_label" value="No" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e12">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
+        <!-- Edge e13: Loop Rows Done -> End -->
         <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_rows" target="end">
            <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -124,11 +133,11 @@
               <mxPoint x="280" y="830" />
             </Array>
           </mxGeometry>
-           <mxText value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e13">
+        </mxCell>
+        <mxCell id="e13_label" value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e13">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
 
       </root>

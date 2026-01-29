@@ -71,6 +71,8 @@
             </Array>
           </mxGeometry>
         </mxCell>
+
+        <!-- Edge e9: Loop Done -> End -->
         <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_main" target="end">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
@@ -78,11 +80,11 @@
               <mxPoint x="520" y="890" />
             </Array>
           </mxGeometry>
-          <mxText value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e9">
+        </mxCell>
+        <mxCell id="e9_label" value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e9">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
 
       </root>

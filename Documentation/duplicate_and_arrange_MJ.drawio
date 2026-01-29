@@ -64,14 +64,17 @@
         <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="calc" target="dup_loop">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
+
+        <!-- Edge e7: Loop Yes -> Process -->
         <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="dup_loop" target="dup_process">
           <mxGeometry relative="1" as="geometry" />
-          <mxText value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e7">
+        </mxCell>
+        <mxCell id="e7_label" value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e7">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
         <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="dup_process" target="dup_loop">
           <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -80,14 +83,18 @@
             </Array>
           </mxGeometry>
         </mxCell>
+
+        <!-- Edge e9: Loop No -> Pack -->
         <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="dup_loop" target="pack">
           <mxGeometry relative="1" as="geometry" />
-          <mxText value="No / Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e9">
+        </mxCell>
+        <mxCell id="e9_label" value="No / Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e9">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
+        <!-- Edge e10: Pack -> Next Tray -->
         <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="pack" target="loop_trays">
            <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -95,12 +102,14 @@
               <mxPoint x="320" y="280" />
             </Array>
           </mxGeometry>
-           <mxText value="Next Tray" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e10">
+        </mxCell>
+        <mxCell id="e10_label" value="Next Tray" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e10">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
+
+        <!-- Edge e11: Loop Trays -> End -->
         <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="loop_trays" target="end">
            <mxGeometry relative="1" as="geometry">
              <Array as="points">
@@ -108,11 +117,11 @@
               <mxPoint x="280" y="910" />
             </Array>
           </mxGeometry>
-           <mxText value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e11">
+        </mxCell>
+        <mxCell id="e11_label" value="Done" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="e11">
             <mxGeometry x="-0.2" relative="1" as="geometry">
               <mxPoint as="offset" />
             </mxGeometry>
-          </mxText>
         </mxCell>
 
       </root>
