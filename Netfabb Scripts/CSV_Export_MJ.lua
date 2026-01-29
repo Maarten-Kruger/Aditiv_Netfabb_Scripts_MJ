@@ -189,7 +189,7 @@ local success_main, err_main = pcall(function()
                     end
 
                     -- FILTER: Skip if name contains "dup" (case insensitive)
-                    if not string.find(string.lower(name), "dup") then
+                    if not string.find(string.lower(name), "_dup") then
                         found_non_dup = true
 
                         -- 4. Calculate Totals (Assuming homogenous tray filled by duplicate_and_arrange)
@@ -256,7 +256,7 @@ local success_main, err_main = pcall(function()
                     end
 
                     -- FILTER: Skip if name contains "dup" (case insensitive)
-                    if not string.find(string.lower(name), "dup") then
+                    if not string.find(string.lower(name), "_dup") then
                         found_non_dup = true
 
                         -- 4. Calculate Totals
