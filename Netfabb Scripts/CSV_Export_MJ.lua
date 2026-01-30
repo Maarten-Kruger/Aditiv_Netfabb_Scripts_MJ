@@ -102,10 +102,11 @@ local success_main, err_main = pcall(function()
         local bb_vol = 0
         local ob = safe_get(mesh, "outbox")
         local dim_str = "N/A"
+        local w, d, h = 0, 0, 0
         if ob then
-            local w = ob.maxx - ob.minx
-            local d = ob.maxy - ob.miny
-            local h = ob.maxz - ob.minz
+            w = ob.maxx - ob.minx
+            d = ob.maxy - ob.miny
+            h = ob.maxz - ob.minz
             bb_vol = w * d * h
             dim_str = w .. " x " .. d .. " x " .. h
         end
@@ -120,13 +121,13 @@ local success_main, err_main = pcall(function()
             end
         end
 
-        return vol, bb_vol, sup_vol, dim_str
+        return vol, bb_vol, sup_vol, dim_str, w, d, h
     end
 
     -- Collect Data
     local csv_lines = {}
     -- Header: Build Time is LAST
-    table.insert(csv_lines, "Tray Name,Mesh Name,Part Volume (Single),Total Part Volume,Bounding Box Volume,Support Volume (Single),Total Support Volume,Tray Build Time")
+    table.insert(csv_lines, "Tray Name,Mesh Name,Quantity,Outbox Width,Outbox Length,Outbox Height,Part Volume (Single),Total Part Volume,Bounding Box Volume,Support Volume (Single),Total Support Volume,Tray Build Time")
 
     local tray_handler = _G.netfabbtrayhandler
     local tray_count = 0
@@ -173,7 +174,7 @@ local success_main, err_main = pcall(function()
                     local name = sanitize_name(raw_name)
 
                     -- Get Metrics
-                    local vol, bb_vol, sup_vol, dim_str = get_mesh_metrics(mesh)
+                    local vol, bb_vol, sup_vol, dim_str, w, d, h = get_mesh_metrics(mesh)
                     log("  Volume: " .. vol)
                     log("  Outbox: " .. dim_str .. " = " .. bb_vol)
                     log("  Support Volume: " .. sup_vol)
@@ -201,7 +202,7 @@ local success_main, err_main = pcall(function()
                         log("  Total Support Volume: " .. total_sup_vol)
 
                         -- Add Row (Build Time at End)
-                        local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
+                        local row = string.format("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%s", tray_name, name, mesh_count, w, d, h, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
                         table.insert(csv_lines, row)
                         log("  Added CSV Row: " .. row)
                     else
@@ -240,7 +241,7 @@ local success_main, err_main = pcall(function()
                     local name = sanitize_name(raw_name)
 
                     -- Get Metrics
-                    local vol, bb_vol, sup_vol, dim_str = get_mesh_metrics(mesh)
+                    local vol, bb_vol, sup_vol, dim_str, w, d, h = get_mesh_metrics(mesh)
                     log("  Volume: " .. vol)
                     log("  Outbox: " .. dim_str .. " = " .. bb_vol)
                     log("  Support Volume: " .. sup_vol)
@@ -267,7 +268,7 @@ local success_main, err_main = pcall(function()
                         log("  Total Part Volume: " .. total_part_vol)
                         log("  Total Support Volume: " .. total_sup_vol)
 
-                        local row = string.format("%s,%s,%f,%f,%f,%f,%f,%s", tray_name, name, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
+                        local row = string.format("%s,%s,%d,%f,%f,%f,%f,%f,%f,%f,%f,%s", tray_name, name, mesh_count, w, d, h, vol, total_part_vol, bb_vol, sup_vol, total_sup_vol, b_time)
                         table.insert(csv_lines, row)
                         log("  Added CSV Row: " .. row)
                     else
